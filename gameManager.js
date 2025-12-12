@@ -139,8 +139,9 @@ class GameManager {
     } catch (err) {
       return cb({ ok: false, message: err.message });
     }
+    const targetN = player.roleIndex === 1 ? 6 : room.targetN; // ✅ 巴特(1) 需要 6 連線
+    const win = this.checkWinner(board, x, y, playerIndex + 1, targetN);
 
-    const win = this.checkWinner(board, x, y, playerIndex + 1, room.targetN);
     if (win) {
       player.wins = (player.wins || 0) + 1;
       room.status = 'ENDED';
@@ -662,11 +663,15 @@ class GameManager {
 
   checkBoardForAnyWinner(room) {
     const board = room.board;
-    const n = room.targetN;
     for (let y = 0; y < board.length; y++) {
       for (let x = 0; x < board[y].length; x++) {
         const v = board[y][x];
-        if (v > 0 && this.checkWinner(board, x, y, v, n)) return v - 1;
+        if (v > 0) {
+          const ownerIndex = v - 1;
+          const owner = room.players[ownerIndex];
+          const n = owner?.roleIndex === 1 ? 6 : room.targetN; // ✅ 巴特 6 連線
+          if (this.checkWinner(board, x, y, v, n)) return ownerIndex;
+        }
       }
     }
     return null;
