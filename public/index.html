@@ -5,30 +5,255 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>基紐棋 (Geniuchi)</title>
     <style>
+      :root {
+        --bg: #fafafa;
+        --card: #ffffff;
+        --text: #111;
+        --muted: #666;
+        --border: #e6e6e6;
+        --shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+        --radius: 14px;
+      }
+
       body {
         font-family: Arial, Helvetica, sans-serif;
         margin: 0;
-        padding: 12px;
-        background: #fafafa;
+        padding: 0;
+        background: var(--bg);
+        color: var(--text);
       }
-      #app {
+
+      .page {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 14px 12px 18px;
+      }
+
+      .header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .title {
+        margin: 0;
+        font-size: 20px;
+      }
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+
+      .row {
         display: flex;
         gap: 12px;
+        align-items: stretch;
       }
-      .left {
-        width: 280px;
+      .col {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
       }
-      .player {
-        margin: 4px 0;
+
+      .panel {
+        padding: 12px;
+      }
+
+      .topbar {
         display: flex;
         align-items: center;
-        gap: 6px;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: rgba(250, 250, 250, 0.92);
+        backdrop-filter: blur(8px);
+      }
+
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        outline: none;
+        font-size: 14px;
+        background: #fff;
+      }
+
+      button {
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+      button.primary {
+        background: #111;
+        color: #fff;
+        border-color: #111;
+      }
+      button.success {
+        background: #2e7d32;
+        color: #fff;
+        border-color: #2e7d32;
+      }
+      button.purple {
+        background: #8e24aa;
+        color: #fff;
+        border-color: #8e24aa;
+      }
+      button.green {
+        background: #4caf50;
+        color: #fff;
+        border-color: #4caf50;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .kv {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: #fff;
+        font-size: 13px;
+      }
+
+      .player {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #fff;
+      }
+      .player-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        flex: 0 0 auto;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+      }
+      .pname {
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pmeta {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .turnTag {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #111;
+        color: #fff;
+      }
+
+      .color-palette {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .color-choice {
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        box-sizing: border-box;
+      }
+      .color-choice.selected {
+        border-color: #111;
+      }
+
+      .roles-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .role-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: #fff;
+        padding: 10px;
+        cursor: pointer;
+      }
+      .role-card.selected {
+        outline: 3px solid rgba(0, 0, 0, 0.25);
+      }
+      .role-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .role-name {
+        font-weight: 800;
+      }
+      .role-skill {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+
+      .board-wrap {
+        padding: 12px;
       }
       .board {
         border: 1px solid #333;
         background: #fff;
         display: inline-block;
-        margin-top: 8px;
+        border-radius: 10px;
+        overflow: hidden;
       }
       .board-grid {
         display: grid;
@@ -36,7 +261,7 @@
       .cell {
         width: 28px;
         height: 28px;
-        border: 1px solid #ddd;
+        border: 1px solid #eee;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -58,6 +283,7 @@
       .highlight-gudo-self {
         outline: 2px solid #4caf50;
       }
+
       .circle {
         width: 20px;
         height: 20px;
@@ -129,40 +355,44 @@
       .grayX::after {
         transform: translate(-50%, -50%) rotate(-45deg);
       }
-      .color-palette,
-      .role-palette {
-        display: flex;
-        gap: 6px;
-        margin-top: 6px;
-        flex-wrap: wrap;
-      }
-      .choice {
-        width: 28px;
-        height: 28px;
-        border-radius: 4px;
-        cursor: pointer;
-        box-sizing: border-box;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
+
       .info-panel {
-        margin-top: 10px;
-        padding: 8px;
-        background: #e0e0e0;
-        border-radius: 4px;
+        margin-top: 8px;
+        padding: 10px;
+        background: #f2f2f2;
+        border-radius: 12px;
         font-size: 14px;
+      }
+
+      @media (max-width: 920px) {
+        .row {
+          flex-direction: column;
+        }
+        .roles-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
-    <h2>基紐棋 (Geniuchi) - 五角色完整版</h2>
-    <div id="app"></div>
+    <div class="page">
+      <div class="header">
+        <div>
+          <h2 class="title">基紐棋 (Geniuchi)</h2>
+          <p class="subtitle">多人連線｜Lobby 選角 → 進入棋盤</p>
+        </div>
+        <div class="pill">五角色版本</div>
+      </div>
+      <div id="app"></div>
+    </div>
+
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/socket.io/client-dist/socket.io.min.js"></script>
+
     <script>
       const e = React.createElement;
+
       const COLORS = [
         '#e53935',
         '#8e24aa',
@@ -171,6 +401,7 @@
         '#00897b',
         '#fdd835',
       ];
+
       const ROLES = [
         { name: '基紐', shape: 'circle' },
         { name: '巴特', shape: 'star' },
@@ -179,9 +410,14 @@
         { name: '古杜', shape: 'triangle' },
       ];
 
-      // ✅ 支援部署後跨裝置連線：
-      // 1) 預設 io()（同網域）
-      // 2) 若網址帶 ?server=https://xxx 會改連指定的 socket server
+      const ROLE_DESC = {
+        0: '能力：交換同列/同行任一敵方棋（本回合不能先落子）。',
+        1: '每回合可下 2 子；勝利需 6 連線。',
+        2: '可覆蓋空格或一般棋（不可覆蓋灰叉）。',
+        3: '每回合 2 動作：先下棋，再放 1 個灰叉（只能放空格）。',
+        4: '能力：移動「周圍」一顆敵方棋到該棋周圍空格。',
+      };
+
       function connectSocket() {
         const params = new URLSearchParams(location.search);
         const serverUrl = params.get('server');
@@ -191,6 +427,16 @@
           });
         }
         return io();
+      }
+
+      function safeCopy(text) {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text);
+            return;
+          }
+        } catch (e) {}
+        prompt('複製這段：', text);
       }
 
       function App() {
@@ -226,7 +472,6 @@
           s.on('placed', (payload) => {
             if (payload.board) setBoard(payload.board);
 
-            // 🔹 把後端傳來的 turnIndex / roundCount / status 寫回 roomRef.current
             if (roomRef.current) {
               roomRef.current = {
                 ...roomRef.current,
@@ -243,7 +488,6 @@
               };
             }
 
-            // ✅ 關鍵修正：也要更新 React state 的 room，讓 isMyTurn 能正確重新計算
             setRoom((prev) => {
               const base = prev || roomRef.current;
               if (!base) return base;
@@ -269,7 +513,6 @@
               alert(`🏆 遊戲結束！勝利者：${winnerName}`);
             }
 
-            // 重置所有 highlight / 模式
             setHighlightSources([]);
             setHighlightTargets([]);
             setHighlightGudo([]);
@@ -284,7 +527,6 @@
             updateTurnInfo(roomRef.current);
           });
 
-          // 古杜能力被後端取消時，清除前端框線與模式
           s.on('gudoCancelled', () => {
             setHighlightGudo([]);
             setHighlightGudoTargets([]);
@@ -295,7 +537,7 @@
             }
           });
 
-          // ✅ 基紐能力被取消時（只跳一次：統一在這裡 alert）
+          // 若後端有送 ginyuCancelled，前端會清除（沒有也不影響）
           s.on('ginyuCancelled', (payload) => {
             setHighlightSources([]);
             setHighlightTargets([]);
@@ -303,10 +545,11 @@
             if (payload?.message) alert(payload.message);
           });
 
-          // ✅ 斷線提示（方便你測多裝置）
-          s.on('disconnect', () => {
-            console.log('socket disconnected');
-          });
+          return () => {
+            try {
+              s.disconnect();
+            } catch (e) {}
+          };
         }, []);
 
         function updateTurnInfo(r) {
@@ -321,6 +564,7 @@
         }
 
         function createRoom() {
+          if (!socket) return;
           socket.emit(
             'createRoom',
             { maxPlayers: 4, name: name.trim() },
@@ -331,6 +575,7 @@
         }
 
         function joinRoom() {
+          if (!socket) return;
           const id = prompt('輸入房間ID');
           if (!id) return;
           socket.emit('joinRoom', { roomId: id, name: name.trim() }, (res) => {
@@ -340,7 +585,7 @@
         }
 
         function pickColor(i) {
-          if (!room) return;
+          if (!room || !socket) return;
           setSelectedColor(i);
           socket.emit(
             'pickColor',
@@ -352,7 +597,7 @@
         }
 
         function pickRole(i) {
-          if (!room) return;
+          if (!room || !socket) return;
           setSelectedRole(i);
           socket.emit('pickRole', { roomId: room.id, roleIndex: i }, (res) => {
             if (res.ok) setRoom(res.room);
@@ -360,6 +605,7 @@
         }
 
         function readyUp() {
+          if (!room || !socket) return;
           if (selectedColor === null || selectedRole === null)
             return alert('請先選擇顏色與角色');
           socket.emit('readyUp', { roomId: room.id }, (res) => {
@@ -368,72 +614,70 @@
         }
 
         function startGame() {
+          if (!room || !socket) return;
           socket.emit('startGame', { roomId: room.id });
         }
 
-        // ✅ 取消基紐能力（不在這裡 alert，避免跳兩次；統一由 ginyuCancelled 事件提示）
-        function cancelGinyu() {
-          try {
-            socket?.emit('ginyuCancel', { roomId: room?.id }, () => {});
-          } catch (e) {}
-
-          setHighlightSources([]);
-          setHighlightTargets([]);
-          setGinyuMode(false);
-        }
-
         function place(x, y) {
-          if (!room || room.status !== 'PLAYING') return;
+          if (!room || room.status !== 'PLAYING' || !socket) return;
 
           // 基紐能力
           if (ginyuMode) {
-            const inSources = highlightSources.some((p) => p.x === x && p.y === y);
-            const inTargets = highlightTargets.some((p) => p.x === x && p.y === y);
+            const inSources = highlightSources.some(
+              (p) => p.x === x && p.y === y
+            );
+            const inTargets = highlightTargets.some(
+              (p) => p.x === x && p.y === y
+            );
 
-            // 尚未選 source（只能點紫框棋）
             if (highlightSources.length && !highlightTargets.length) {
               if (!inSources) {
-                // 點到非可用 source：視為反悔取消
-                cancelGinyu();
+                setHighlightSources([]);
+                setHighlightTargets([]);
+                setGinyuMode(false);
                 return;
               }
-
               socket.emit(
                 'ginyuSelectSource',
                 { roomId: room.id, x, y },
                 (res) => {
                   if (res.ok) setHighlightTargets(res.targets);
                   else {
-                    if (!String(res.message || '').includes('取消')) alert(res.message);
-                    cancelGinyu();
+                    alert(res.message);
+                    setHighlightSources([]);
+                    setHighlightTargets([]);
+                    setGinyuMode(false);
                   }
                 }
               );
               return;
             }
 
-            // 已選 source（只能點紫虛線框 target）
             if (highlightTargets.length) {
               if (!inTargets) {
-                cancelGinyu();
+                setHighlightSources([]);
+                setHighlightTargets([]);
+                setGinyuMode(false);
                 return;
               }
-
               socket.emit(
                 'ginyuSelectTarget',
                 { roomId: room.id, x, y },
                 (res) => {
                   if (!res.ok) {
-                    if (!String(res.message || '').includes('取消')) alert(res.message);
-                    cancelGinyu();
+                    alert(res.message);
+                    setHighlightSources([]);
+                    setHighlightTargets([]);
+                    setGinyuMode(false);
                   }
                 }
               );
               return;
             }
 
-            // 保底：狀態怪掉就直接取消
-            cancelGinyu();
+            setHighlightSources([]);
+            setHighlightTargets([]);
+            setGinyuMode(false);
             return;
           }
 
@@ -441,7 +685,10 @@
           if (gudoMode) {
             const localRoom = roomRef.current || room;
 
-            if (!localRoom.gudoClientStep || localRoom.gudoClientStep === 'idle') {
+            if (
+              !localRoom.gudoClientStep ||
+              localRoom.gudoClientStep === 'idle'
+            ) {
               socket.emit(
                 'gudoSelectSource',
                 { roomId: localRoom.id, x, y },
@@ -488,9 +735,7 @@
                 'gudoMovePiece',
                 { roomId: localRoom.id, x, y },
                 (res) => {
-                  if (!res.ok) {
-                    alert(res.message);
-                  }
+                  if (!res.ok) alert(res.message);
                 }
               );
               return;
@@ -504,6 +749,7 @@
         }
 
         function activateGinyu() {
+          if (!room || !socket) return;
           socket.emit('ginyuAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGinyuMode(true);
@@ -513,6 +759,7 @@
         }
 
         function activateGudo() {
+          if (!room || !socket) return;
           socket.emit('gudoAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGudoMode(true);
@@ -531,160 +778,451 @@
           room.turnIndex !== undefined &&
           room.players[room.turnIndex]?.id === me.id;
 
+        if (!room) {
+          return e(StartScreen, {
+            name,
+            setName,
+            createRoom,
+            joinRoom,
+          });
+        }
+
+        if (room.status === 'LOBBY') {
+          return e(LobbyScreen, {
+            room,
+            me,
+            selectedColor,
+            selectedRole,
+            pickColor,
+            pickRole,
+            readyUp,
+            startGame,
+            socket,
+          });
+        }
+
+        return e(GameScreen, {
+          room,
+          board,
+          onPlace: place,
+          isMyTurn,
+          me,
+          turnInfo,
+          activateGinyu,
+          activateGudo,
+          highlightSources,
+          highlightTargets,
+          highlightGudo,
+          highlightGudoTargets,
+          highlightGudoSelf,
+        });
+      }
+
+      function StartScreen({ name, setName, createRoom, joinRoom }) {
         return e(
           'div',
-          { style: { display: 'flex', gap: 12 } },
+          { className: 'card panel' },
+          e('div', { className: 'muted' }, '第一步：輸入名字 → 建房或加入房間'),
+          e('div', { style: { height: 10 } }),
+          e('input', {
+            value: name,
+            onChange: (ev) => setName(ev.target.value),
+            placeholder: '輸入名稱（建議 2~10 字）',
+          }),
+          e('div', { style: { height: 10 } }),
           e(
             'div',
-            { className: 'left' },
-            e('h3', null, 'Lobby'),
-            e('input', {
-              value: name,
-              onChange: (ev) => setName(ev.target.value),
-              placeholder: '輸入名稱',
-            }),
-            e('button', { onClick: createRoom }, 'Create Room'),
-            e('button', { onClick: joinRoom }, 'Join Room'),
-            room &&
-              room.status === 'LOBBY' &&
+            { className: 'actions' },
+            e(
+              'button',
+              { className: 'primary', onClick: createRoom },
+              'Create Room'
+            ),
+            e('button', { onClick: joinRoom }, 'Join Room')
+          )
+        );
+      }
+
+      function LobbyScreen({
+        room,
+        me,
+        selectedColor,
+        selectedRole,
+        pickColor,
+        pickRole,
+        readyUp,
+        startGame,
+        socket,
+      }) {
+        const isHost = room?.hostId === socket?.id;
+        const allReady =
+          room?.players?.length && room.players.every((p) => p.ready);
+
+        return e(
+          'div',
+          { className: 'row' },
+          e(
+            'div',
+            { className: 'col', style: { flex: '0 0 360px' } },
+            e(
+              'div',
+              { className: 'card panel' },
               e(
                 'div',
-                null,
-                e('h4', null, '選擇棋子顏色'),
+                { className: 'kv' },
                 e(
                   'div',
-                  { className: 'color-palette' },
-                  COLORS.map((c, i) =>
-                    e('div', {
-                      key: i,
-                      className: 'choice',
-                      style: {
-                        background: c,
-                        border:
-                          selectedColor === i
-                            ? '3px solid #000'
-                            : '1px solid #666',
-                      },
-                      onClick: () => pickColor(i),
-                    })
-                  )
-                ),
-                e('h4', null, '選擇角色'),
-                e(
-                  'div',
-                  { className: 'role-palette' },
-                  ROLES.map((r, i) =>
-                    e(
-                      'div',
-                      {
-                        key: i,
-                        className: 'choice',
-                        style: {
-                          border:
-                            selectedRole === i
-                              ? '3px solid #000'
-                              : '1px solid #666',
-                        },
-                        onClick: () => pickRole(i),
-                      },
-                      e('div', {
-                        className: r.shape,
-                        style: { color: '#333' },
-                      })
-                    )
-                  )
+                  null,
+                  e('div', { style: { fontWeight: 800 } }, 'Lobby'),
+                  e('div', { className: 'muted' }, '房間與選角')
                 ),
                 e(
                   'button',
-                  { onClick: readyUp, style: { marginTop: 6 } },
-                  '準備完成'
+                  {
+                    onClick: () => safeCopy(room.id),
+                  },
+                  'Copy Room ID'
                 )
               ),
-            room &&
-              room.hostId === socket?.id &&
-              room.players.every((p) => p.ready) &&
-              e(
-                'button',
-                {
-                  onClick: startGame,
-                  style: {
-                    background: '#4caf50',
-                    color: '#fff',
-                    marginTop: '8px',
-                  },
-                },
-                'Start Game'
-              ),
-            room &&
+              e('div', { style: { height: 8 } }),
               e(
                 'div',
-                null,
-                e('div', null, 'Room ID:', room.id),
-                room.players &&
-                  room.players.map((p) =>
+                { className: 'pill' },
+                'Room ID：',
+                e('b', null, room.id)
+              )
+            ),
+
+            e(
+              'div',
+              { className: 'card panel' },
+              e(
+                'div',
+                { style: { fontWeight: 800, marginBottom: 8 } },
+                '玩家列表'
+              ),
+              room.players?.map((p, idx) =>
+                e(
+                  'div',
+                  { key: p.id, className: 'player' },
+                  e(
+                    'div',
+                    { className: 'player-left' },
+                    e('div', {
+                      className: 'dot',
+                      style: { background: COLORS[p.colorIndex ?? 0] },
+                    }),
                     e(
                       'div',
-                      { key: p.id, className: 'player' },
-                      e('div', {
-                        style: {
-                          width: 18,
-                          height: 18,
-                          background: COLORS[p.colorIndex || 0],
-                          display: 'inline-block',
-                          marginRight: 4,
-                        },
-                      }),
-                      e('span', null, p.name),
-                      p.ready ? e('span', null, ' ✅') : null
+                      { style: { minWidth: 0 } },
+                      e(
+                        'div',
+                        { className: 'pname' },
+                        `${p.name || 'Player'}${
+                          me?.id === p.id ? '（你）' : ''
+                        }`
+                      ),
+                      e(
+                        'div',
+                        { className: 'pmeta' },
+                        `玩家ID：${idx + 1}｜角色：${
+                          ROLES[p.roleIndex ?? 0]?.name || '未選'
+                        }`
+                      )
                     )
-                  )
-              ),
-            isMyTurn &&
-              me?.roleIndex === 0 &&
-              e(
-                'button',
-                {
-                  onClick: activateGinyu,
-                  style: {
-                    background: '#9c27b0',
-                    color: '#fff',
-                    marginTop: 10,
-                  },
-                },
-                '發動基紐能力'
-              ),
-            isMyTurn &&
-              me?.roleIndex === 4 &&
-              e(
-                'button',
-                {
-                  onClick: activateGudo,
-                  style: {
-                    background: '#4caf50',
-                    color: '#fff',
-                    marginTop: 10,
-                  },
-                },
-                '發動古杜能力'
-              ),
-            turnInfo && e('div', { className: 'info-panel' }, turnInfo)
+                  ),
+                  p.ready
+                    ? e('div', null, '✅')
+                    : e('div', { className: 'muted' }, '未準備')
+                )
+              )
+            )
           ),
+
           e(
             'div',
-            null,
-            e('h3', null, 'Board'),
-            board.length > 0
-              ? e(Board, {
-                  board,
-                  onPlace: place,
-                  room,
-                  highlightSources,
-                  highlightTargets,
-                  highlightGudo,
-                  highlightGudoTargets,
-                  highlightGudoSelf,
+            { className: 'col', style: { flex: '1 1 auto' } },
+            e(
+              'div',
+              { className: 'card panel' },
+              e(
+                'div',
+                { style: { fontWeight: 800, marginBottom: 8 } },
+                '選擇顏色'
+              ),
+              e(
+                'div',
+                { className: 'color-palette' },
+                COLORS.map((c, i) =>
+                  e('div', {
+                    key: i,
+                    className:
+                      'color-choice' + (selectedColor === i ? ' selected' : ''),
+                    style: { background: c },
+                    onClick: () => pickColor(i),
+                  })
+                )
+              ),
+              e('div', { style: { height: 10 } }),
+              e(
+                'div',
+                { style: { fontWeight: 800, marginBottom: 8 } },
+                '選擇角色（含技能介紹）'
+              ),
+              e(
+                'div',
+                { className: 'roles-grid' },
+                ROLES.map((r, i) =>
+                  e(
+                    'div',
+                    {
+                      key: i,
+                      className:
+                        'role-card' + (selectedRole === i ? ' selected' : ''),
+                      onClick: () => pickRole(i),
+                    },
+                    e(
+                      'div',
+                      { className: 'role-head' },
+                      e(
+                        'div',
+                        null,
+                        e('div', { className: 'role-name' }, r.name)
+                        // ✅ 已刪除 roleIndex=... 顯示
+                      ),
+                      e('div', { className: r.shape, style: { color: '#333' } })
+                    ),
+                    e('div', { className: 'role-skill' }, ROLE_DESC[i] || '')
+                  )
+                )
+              ),
+              e('div', { style: { height: 12 } }),
+              e(
+                'div',
+                { className: 'actions' },
+                e(
+                  'button',
+                  { className: 'success', onClick: readyUp },
+                  '準備完成'
+                ),
+                isHost && allReady
+                  ? e(
+                      'button',
+                      { className: 'primary', onClick: startGame },
+                      'Start Game'
+                    )
+                  : e(
+                      'button',
+                      { disabled: true },
+                      isHost ? '等待所有人準備' : '等待房主開始'
+                    )
+              )
+            ),
+
+            e(
+              'div',
+              { className: 'card panel' },
+              e('div', { style: { fontWeight: 800 } }, '你的設定'),
+              e(
+                'div',
+                { className: 'muted', style: { marginTop: 6 } },
+                `你是：${me?.name || 'N/A'}｜顏色：$${
+                  me?.colorIndex === null || me?.colorIndex === undefined
+                    ? '未選'
+                    : me.colorIndex
+                }｜角色：$${
+                  me?.roleIndex === null || me?.roleIndex === undefined
+                    ? '未選'
+                    : ROLES[me.roleIndex]?.name
+                }`
+              )
+            )
+          )
+        );
+      }
+
+      function GameScreen({
+        room,
+        board,
+        onPlace,
+        isMyTurn,
+        me,
+        turnInfo,
+        activateGinyu,
+        activateGudo,
+        highlightSources,
+        highlightTargets,
+        highlightGudo,
+        highlightGudoTargets,
+        highlightGudoSelf,
+      }) {
+        const current = room?.players?.[room?.turnIndex];
+
+        return e(
+          'div',
+          { className: 'col' },
+          e(
+            'div',
+            { className: 'topbar' },
+            e(
+              'div',
+              { className: 'pill' },
+              'Room：',
+              e('b', null, room.id),
+              e(
+                'button',
+                {
+                  style: { padding: '6px 10px' },
+                  onClick: () => safeCopy(room.id),
+                },
+                'Copy'
+              )
+            ),
+            e('div', { className: 'pill' }, turnInfo || '進行中…')
+          ),
+
+          e(
+            'div',
+            { className: 'row' },
+            e(
+              'div',
+              { className: 'card board-wrap', style: { flex: '1 1 auto' } },
+              board.length > 0
+                ? e(Board, {
+                    board,
+                    onPlace,
+                    room,
+                    highlightSources,
+                    highlightTargets,
+                    highlightGudo,
+                    highlightGudoTargets,
+                    highlightGudoSelf,
+                  })
+                : e('div', { className: 'muted' }, '尚未開始遊戲')
+            ),
+
+            e(
+              'div',
+              { className: 'col', style: { flex: '0 0 360px' } },
+              e(
+                'div',
+                { className: 'card panel' },
+                e(
+                  'div',
+                  { className: 'kv' },
+                  e(
+                    'div',
+                    null,
+                    e('div', { style: { fontWeight: 800 } }, '房間資訊'),
+                    e(
+                      'div',
+                      { className: 'muted' },
+                      `目標連線：${room.targetN}`
+                    )
+                  ),
+                  current
+                    ? e(
+                        'div',
+                        { className: 'turnTag' },
+                        `輪到：${current.name || 'N/A'}`
+                      )
+                    : null
+                )
+              ),
+
+              e(
+                'div',
+                { className: 'card panel' },
+                e(
+                  'div',
+                  { style: { fontWeight: 800, marginBottom: 8 } },
+                  '玩家列表'
+                ),
+                room.players?.map((p, idx) => {
+                  const isTurn = current?.id === p.id;
+                  return e(
+                    'div',
+                    {
+                      key: p.id,
+                      className: 'player',
+                      style: isTurn ? { borderColor: '#111' } : null,
+                    },
+                    e(
+                      'div',
+                      { className: 'player-left' },
+                      e('div', {
+                        className: 'dot',
+                        style: { background: COLORS[p.colorIndex ?? 0] },
+                      }),
+                      e(
+                        'div',
+                        { style: { minWidth: 0 } },
+                        e(
+                          'div',
+                          { className: 'pname' },
+                          `${p.name || 'Player'}${
+                            me?.id === p.id ? '（你）' : ''
+                          }`
+                        ),
+                        e(
+                          'div',
+                          { className: 'pmeta' },
+                          `玩家ID：${idx + 1}｜角色：${
+                            ROLES[p.roleIndex ?? 0]?.name || 'N/A'
+                          }`
+                        )
+                      )
+                    ),
+                    isTurn ? e('div', null, '🎯') : null
+                  );
                 })
-              : e('div', null, '尚未開始遊戲')
+              ),
+
+              e(
+                'div',
+                { className: 'card panel' },
+                e('div', { style: { fontWeight: 800 } }, '能力'),
+                e(
+                  'div',
+                  { className: 'muted', style: { marginTop: 6 } },
+                  `你：${me?.name || 'N/A'}｜角色：$${
+                    me?.roleIndex === null || me?.roleIndex === undefined
+                      ? '未選'
+                      : ROLES[me.roleIndex]?.name
+                  }`
+                ),
+                e('div', { style: { height: 10 } }),
+                e(
+                  'div',
+                  { className: 'actions' },
+                  e(
+                    'button',
+                    {
+                      className: 'purple',
+                      disabled: !(isMyTurn && me?.roleIndex === 0),
+                      onClick: activateGinyu,
+                    },
+                    '發動基紐能力'
+                  ),
+                  e(
+                    'button',
+                    {
+                      className: 'green',
+                      disabled: !(isMyTurn && me?.roleIndex === 4),
+                      onClick: activateGudo,
+                    },
+                    '發動古杜能力'
+                  )
+                ),
+                e(
+                  'div',
+                  { className: 'info-panel' },
+                  isMyTurn
+                    ? '✅ 輪到你了，請下棋或使用能力。'
+                    : '⏳ 等待其他玩家操作…'
+                )
+              )
+            )
           )
         );
       }
@@ -728,9 +1266,11 @@
               const ownerIndex = Math.abs(v) - 1;
               const owner = room.players[ownerIndex];
               const baseColor = COLORS[owner.colorIndex || 0];
-              const darker = `rgb(${parseInt(baseColor.slice(1, 3), 16) * 0.6}, ${
-                parseInt(baseColor.slice(3, 5), 16) * 0.6
-              }, ${parseInt(baseColor.slice(5, 7), 16) * 0.6})`;
+              const darker = `rgb(${
+                parseInt(baseColor.slice(1, 3), 16) * 0.6
+              }, ${parseInt(baseColor.slice(3, 5), 16) * 0.6}, ${
+                parseInt(baseColor.slice(5, 7), 16) * 0.6
+              })`;
               inner = e('div', {
                 className: 'grayX',
                 style: { color: darker },
