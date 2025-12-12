@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>基紐棋 (Geniuchi)</title>
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        margin: 0;
+        padding: 12px;
+        background: #fafafa;
+      }
+      #app {
+        display: flex;
+        gap: 12px;
+      }
+      .left {
+        width: 280px;
+      }
+      .player {
+        margin: 4px 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .board {
+        border: 1px solid #333;
+        background: #fff;
+        display: inline-block;
+        margin-top: 8px;
+      }
+      .board-grid {
+        display: grid;
+      }
+      .cell {
+        width: 28px;
+        height: 28px;
+        border: 1px solid #ddd;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        position: relative;
+      }
+      .highlight-source {
+        outline: 2px solid purple;
+      }
+      .highlight-target {
+        outline: 2px dashed purple;
+      }
+      .highlight-gudo {
+        outline: 2px solid green;
+      }
+      .highlight-gudo-target {
+        outline: 2px dashed green;
+      }
+      .highlight-gudo-self {
+        outline: 2px solid #4caf50;
+      }
+      .circle {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .star::before {
+        content: '★';
+        font-size: 28px;
+        line-height: 1;
+        color: currentColor;
+      }
+      .square {
+        width: 20px;
+        height: 20px;
+        background: currentColor;
+      }
+      .triangle {
+        width: 0;
+        height: 0;
+        border-left: 10px solid transparent;
+        border-right: 10px solid transparent;
+        border-bottom: 18px solid currentColor;
+      }
+      .logan {
+        position: relative;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        border: 2px solid currentColor;
+        box-sizing: border-box;
+      }
+      .logan::before,
+      .logan::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 28px;
+        height: 3px;
+        background: currentColor;
+        transform-origin: center;
+      }
+      .logan::before {
+        transform: translate(-50%, -50%) rotate(45deg);
+      }
+      .logan::after {
+        transform: translate(-50%, -50%) rotate(-45deg);
+      }
+      .grayX {
+        position: relative;
+        width: 22px;
+        height: 22px;
+      }
+      .grayX::before,
+      .grayX::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 22px;
+        height: 4px;
+        background: currentColor;
+        transform-origin: center;
+      }
+      .grayX::before {
+        transform: translate(-50%, -50%) rotate(45deg);
+      }
+      .grayX::after {
+        transform: translate(-50%, -50%) rotate(-45deg);
+      }
+      .color-palette,
+      .role-palette {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+        flex-wrap: wrap;
+      }
+      .choice {
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+        cursor: pointer;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .info-panel {
+        margin-top: 10px;
+        padding: 8px;
+        background: #e0e0e0;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>基紐棋 (Geniuchi) - 五角色完整版</h2>
+    <div id="app"></div>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/socket.io/client-dist/socket.io.min.js"></script>
+    <script>
+      const e = React.createElement;
+      const COLORS = [
+        '#e53935',
+        '#8e24aa',
+        '#3949ab',
+        '#1e88e5',
+        '#00897b',
+        '#fdd835',
+      ];
+      const ROLES = [
+        { name: '基紐', shape: 'circle' },
+        { name: '巴特', shape: 'star' },
+        { name: '力庫姆', shape: 'square' },
+        { name: '羅根', shape: 'logan' },
+        { name: '古杜', shape: 'triangle' },
+      ];
+
+      // ✅ 支援部署後跨裝置連線：
+      // 1) 預設 io()（同網域）
+      // 2) 若網址帶 ?server=https://xxx 會改連指定的 socket server
+      function connectSocket() {
+        const params = new URLSearchParams(location.search);
+        const serverUrl = params.get('server');
+        if (serverUrl) {
+          return io(serverUrl, {
+            transports: ['websocket', 'polling'],
+          });
+        }
+        return io();
+      }
+
+      function App() {
+        const [socket, setSocket] = React.useState(null);
+        const [room, setRoom] = React.useState(null);
+        const [board, setBoard] = React.useState([]);
+        const [name, setName] = React.useState('');
+        const [selectedColor, setSelectedColor] = React.useState(null);
+        const [selectedRole, setSelectedRole] = React.useState(null);
+        const [highlightSources, setHighlightSources] = React.useState([]);
+        const [highlightTargets, setHighlightTargets] = React.useState([]);
+        const [highlightGudo, setHighlightGudo] = React.useState([]);
+        const [highlightGudoTargets, setHighlightGudoTargets] = React.useState(
+          []
+        );
+        const [highlightGudoSelf, setHighlightGudoSelf] = React.useState([]);
+        const [ginyuMode, setGinyuMode] = React.useState(false);
+        const [gudoMode, setGudoMode] = React.useState(false);
+        const [turnInfo, setTurnInfo] = React.useState('');
+        const roomRef = React.useRef(null);
+
+        React.useEffect(() => {
+          const s = connectSocket();
+          setSocket(s);
+
+          s.on('roomUpdated', (r) => {
+            roomRef.current = r;
+            setRoom(r);
+            setBoard(r.board || []);
+            updateTurnInfo(r);
+          });
+
+          s.on('placed', (payload) => {
+            if (payload.board) setBoard(payload.board);
+
+            // 🔹 把後端傳來的 turnIndex / roundCount / status 寫回 roomRef.current
+            if (roomRef.current) {
+              roomRef.current = {
+                ...roomRef.current,
+                board: payload.board || roomRef.current.board,
+                turnIndex:
+                  typeof payload.turnIndex === 'number'
+                    ? payload.turnIndex
+                    : roomRef.current.turnIndex,
+                roundCount:
+                  typeof payload.roundCount === 'number'
+                    ? payload.roundCount
+                    : roomRef.current.roundCount,
+                status: payload.status || roomRef.current.status,
+              };
+            }
+
+            // ✅ 關鍵修正：也要更新 React state 的 room，讓 isMyTurn 能正確重新計算
+            setRoom((prev) => {
+              const base = prev || roomRef.current;
+              if (!base) return base;
+              return {
+                ...base,
+                board: payload.board || base.board,
+                turnIndex:
+                  typeof payload.turnIndex === 'number'
+                    ? payload.turnIndex
+                    : base.turnIndex,
+                roundCount:
+                  typeof payload.roundCount === 'number'
+                    ? payload.roundCount
+                    : base.roundCount,
+                status: payload.status || base.status,
+              };
+            });
+
+            if (payload.win) {
+              const r = roomRef.current;
+              const winner = r?.players?.[payload.win.winnerIndex];
+              const winnerName = winner ? winner.name : payload.win.winnerId;
+              alert(`🏆 遊戲結束！勝利者：${winnerName}`);
+            }
+
+            // 重置所有 highlight / 模式
+            setHighlightSources([]);
+            setHighlightTargets([]);
+            setHighlightGudo([]);
+            setHighlightGudoTargets([]);
+            setHighlightGudoSelf([]);
+            setGinyuMode(false);
+            setGudoMode(false);
+            if (roomRef.current) {
+              roomRef.current.gudoClientStep = 'idle';
+            }
+
+            updateTurnInfo(roomRef.current);
+          });
+
+          // 古杜能力被後端取消時，清除前端框線與模式
+          s.on('gudoCancelled', () => {
+            setHighlightGudo([]);
+            setHighlightGudoTargets([]);
+            setHighlightGudoSelf([]);
+            setGudoMode(false);
+            if (roomRef.current) {
+              roomRef.current.gudoClientStep = 'idle';
+            }
+          });
+
+          // ✅ 基紐能力被取消時（只跳一次：統一在這裡 alert）
+          s.on('ginyuCancelled', (payload) => {
+            setHighlightSources([]);
+            setHighlightTargets([]);
+            setGinyuMode(false);
+            if (payload?.message) alert(payload.message);
+          });
+
+          // ✅ 斷線提示（方便你測多裝置）
+          s.on('disconnect', () => {
+            console.log('socket disconnected');
+          });
+        }, []);
+
+        function updateTurnInfo(r) {
+          if (!r || !r.players || r.status !== 'PLAYING') {
+            setTurnInfo('');
+            return;
+          }
+          const turnPlayer = r.players[r.turnIndex];
+          setTurnInfo(
+            `回合：${r.roundCount || 1}｜輪到：${turnPlayer?.name || 'N/A'}`
+          );
+        }
+
+        function createRoom() {
+          socket.emit(
+            'createRoom',
+            { maxPlayers: 4, name: name.trim() },
+            (res) => {
+              if (res.ok) setRoom(res.room);
+            }
+          );
+        }
+
+        function joinRoom() {
+          const id = prompt('輸入房間ID');
+          if (!id) return;
+          socket.emit('joinRoom', { roomId: id, name: name.trim() }, (res) => {
+            if (res.ok) setRoom(res.room);
+            else alert(res.message || '加入失敗');
+          });
+        }
+
+        function pickColor(i) {
+          if (!room) return;
+          setSelectedColor(i);
+          socket.emit(
+            'pickColor',
+            { roomId: room.id, colorIndex: i },
+            (res) => {
+              if (res.ok) setRoom(res.room);
+            }
+          );
+        }
+
+        function pickRole(i) {
+          if (!room) return;
+          setSelectedRole(i);
+          socket.emit('pickRole', { roomId: room.id, roleIndex: i }, (res) => {
+            if (res.ok) setRoom(res.room);
+          });
+        }
+
+        function readyUp() {
+          if (selectedColor === null || selectedRole === null)
+            return alert('請先選擇顏色與角色');
+          socket.emit('readyUp', { roomId: room.id }, (res) => {
+            if (!res.ok && res.message) alert(res.message);
+          });
+        }
+
+        function startGame() {
+          socket.emit('startGame', { roomId: room.id });
+        }
+
+        // ✅ 取消基紐能力（不在這裡 alert，避免跳兩次；統一由 ginyuCancelled 事件提示）
+        function cancelGinyu() {
+          try {
+            socket?.emit('ginyuCancel', { roomId: room?.id }, () => {});
+          } catch (e) {}
+
+          setHighlightSources([]);
+          setHighlightTargets([]);
+          setGinyuMode(false);
+        }
+
+        function place(x, y) {
+          if (!room || room.status !== 'PLAYING') return;
+
+          // 基紐能力
+          if (ginyuMode) {
+            const inSources = highlightSources.some((p) => p.x === x && p.y === y);
+            const inTargets = highlightTargets.some((p) => p.x === x && p.y === y);
+
+            // 尚未選 source（只能點紫框棋）
+            if (highlightSources.length && !highlightTargets.length) {
+              if (!inSources) {
+                // 點到非可用 source：視為反悔取消
+                cancelGinyu();
+                return;
+              }
+
+              socket.emit(
+                'ginyuSelectSource',
+                { roomId: room.id, x, y },
+                (res) => {
+                  if (res.ok) setHighlightTargets(res.targets);
+                  else {
+                    if (!String(res.message || '').includes('取消')) alert(res.message);
+                    cancelGinyu();
+                  }
+                }
+              );
+              return;
+            }
+
+            // 已選 source（只能點紫虛線框 target）
+            if (highlightTargets.length) {
+              if (!inTargets) {
+                cancelGinyu();
+                return;
+              }
+
+              socket.emit(
+                'ginyuSelectTarget',
+                { roomId: room.id, x, y },
+                (res) => {
+                  if (!res.ok) {
+                    if (!String(res.message || '').includes('取消')) alert(res.message);
+                    cancelGinyu();
+                  }
+                }
+              );
+              return;
+            }
+
+            // 保底：狀態怪掉就直接取消
+            cancelGinyu();
+            return;
+          }
+
+          // 古杜能力
+          if (gudoMode) {
+            const localRoom = roomRef.current || room;
+
+            if (!localRoom.gudoClientStep || localRoom.gudoClientStep === 'idle') {
+              socket.emit(
+                'gudoSelectSource',
+                { roomId: localRoom.id, x, y },
+                (res) => {
+                  if (res.ok) {
+                    setHighlightGudo(res.highlights || []);
+                    localRoom.gudoClientStep = 'selectTarget';
+                  } else {
+                    alert(res.message);
+                    setGudoMode(false);
+                    setHighlightGudo([]);
+                    setHighlightGudoTargets([]);
+                    setHighlightGudoSelf([]);
+                    localRoom.gudoClientStep = 'idle';
+                  }
+                }
+              );
+              return;
+            }
+
+            if (localRoom.gudoClientStep === 'selectTarget') {
+              socket.emit(
+                'gudoSelectTarget',
+                { roomId: localRoom.id, x, y },
+                (res) => {
+                  if (res.ok) {
+                    setHighlightGudoTargets(res.emptyAround || []);
+                    localRoom.gudoClientStep = 'selectMove';
+                  } else {
+                    alert(res.message);
+                    setGudoMode(false);
+                    setHighlightGudo([]);
+                    setHighlightGudoTargets([]);
+                    setHighlightGudoSelf([]);
+                    localRoom.gudoClientStep = 'idle';
+                  }
+                }
+              );
+              return;
+            }
+
+            if (localRoom.gudoClientStep === 'selectMove') {
+              socket.emit(
+                'gudoMovePiece',
+                { roomId: localRoom.id, x, y },
+                (res) => {
+                  if (!res.ok) {
+                    alert(res.message);
+                  }
+                }
+              );
+              return;
+            }
+          }
+
+          // 正常下棋
+          socket.emit('place', { roomId: room.id, x, y }, (res) => {
+            if (!res.ok && res.message) alert(res.message);
+          });
+        }
+
+        function activateGinyu() {
+          socket.emit('ginyuAbilityStart', { roomId: room.id }, (res) => {
+            if (res.ok) {
+              setGinyuMode(true);
+              setHighlightSources(res.sources);
+            } else alert(res.message);
+          });
+        }
+
+        function activateGudo() {
+          socket.emit('gudoAbilityStart', { roomId: room.id }, (res) => {
+            if (res.ok) {
+              setGudoMode(true);
+              setHighlightGudo([]);
+              setHighlightGudoTargets([]);
+              setHighlightGudoSelf(res.sources || []);
+              if (roomRef.current) roomRef.current.gudoClientStep = 'idle';
+            } else alert(res.message);
+          });
+        }
+
+        const me = room?.players?.find((p) => p.id === socket?.id);
+        const isMyTurn =
+          room &&
+          me &&
+          room.turnIndex !== undefined &&
+          room.players[room.turnIndex]?.id === me.id;
+
+        return e(
+          'div',
+          { style: { display: 'flex', gap: 12 } },
+          e(
+            'div',
+            { className: 'left' },
+            e('h3', null, 'Lobby'),
+            e('input', {
+              value: name,
+              onChange: (ev) => setName(ev.target.value),
+              placeholder: '輸入名稱',
+            }),
+            e('button', { onClick: createRoom }, 'Create Room'),
+            e('button', { onClick: joinRoom }, 'Join Room'),
+            room &&
+              room.status === 'LOBBY' &&
+              e(
+                'div',
+                null,
+                e('h4', null, '選擇棋子顏色'),
+                e(
+                  'div',
+                  { className: 'color-palette' },
+                  COLORS.map((c, i) =>
+                    e('div', {
+                      key: i,
+                      className: 'choice',
+                      style: {
+                        background: c,
+                        border:
+                          selectedColor === i
+                            ? '3px solid #000'
+                            : '1px solid #666',
+                      },
+                      onClick: () => pickColor(i),
+                    })
+                  )
+                ),
+                e('h4', null, '選擇角色'),
+                e(
+                  'div',
+                  { className: 'role-palette' },
+                  ROLES.map((r, i) =>
+                    e(
+                      'div',
+                      {
+                        key: i,
+                        className: 'choice',
+                        style: {
+                          border:
+                            selectedRole === i
+                              ? '3px solid #000'
+                              : '1px solid #666',
+                        },
+                        onClick: () => pickRole(i),
+                      },
+                      e('div', {
+                        className: r.shape,
+                        style: { color: '#333' },
+                      })
+                    )
+                  )
+                ),
+                e(
+                  'button',
+                  { onClick: readyUp, style: { marginTop: 6 } },
+                  '準備完成'
+                )
+              ),
+            room &&
+              room.hostId === socket?.id &&
+              room.players.every((p) => p.ready) &&
+              e(
+                'button',
+                {
+                  onClick: startGame,
+                  style: {
+                    background: '#4caf50',
+                    color: '#fff',
+                    marginTop: '8px',
+                  },
+                },
+                'Start Game'
+              ),
+            room &&
+              e(
+                'div',
+                null,
+                e('div', null, 'Room ID:', room.id),
+                room.players &&
+                  room.players.map((p) =>
+                    e(
+                      'div',
+                      { key: p.id, className: 'player' },
+                      e('div', {
+                        style: {
+                          width: 18,
+                          height: 18,
+                          background: COLORS[p.colorIndex || 0],
+                          display: 'inline-block',
+                          marginRight: 4,
+                        },
+                      }),
+                      e('span', null, p.name),
+                      p.ready ? e('span', null, ' ✅') : null
+                    )
+                  )
+              ),
+            isMyTurn &&
+              me?.roleIndex === 0 &&
+              e(
+                'button',
+                {
+                  onClick: activateGinyu,
+                  style: {
+                    background: '#9c27b0',
+                    color: '#fff',
+                    marginTop: 10,
+                  },
+                },
+                '發動基紐能力'
+              ),
+            isMyTurn &&
+              me?.roleIndex === 4 &&
+              e(
+                'button',
+                {
+                  onClick: activateGudo,
+                  style: {
+                    background: '#4caf50',
+                    color: '#fff',
+                    marginTop: 10,
+                  },
+                },
+                '發動古杜能力'
+              ),
+            turnInfo && e('div', { className: 'info-panel' }, turnInfo)
+          ),
+          e(
+            'div',
+            null,
+            e('h3', null, 'Board'),
+            board.length > 0
+              ? e(Board, {
+                  board,
+                  onPlace: place,
+                  room,
+                  highlightSources,
+                  highlightTargets,
+                  highlightGudo,
+                  highlightGudoTargets,
+                  highlightGudoSelf,
+                })
+              : e('div', null, '尚未開始遊戲')
+          )
+        );
+      }
+
+      function Board({
+        board,
+        onPlace,
+        room,
+        highlightSources,
+        highlightTargets,
+        highlightGudo,
+        highlightGudoTargets,
+        highlightGudoSelf,
+      }) {
+        const size = board.length;
+        const cells = [];
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const v = board[y][x];
+            const player =
+              v > 0 ? room.players[(v - 1) % room.players.length] : null;
+            const color = player ? COLORS[player.colorIndex || 0] : '#000';
+
+            let className = 'cell';
+            if (highlightSources.some((p) => p.x === x && p.y === y))
+              className += ' highlight-source';
+            if (highlightTargets.some((p) => p.x === x && p.y === y))
+              className += ' highlight-target';
+            if (highlightGudo.some((p) => p.x === x && p.y === y))
+              className += ' highlight-gudo';
+            if (highlightGudoTargets.some((p) => p.x === x && p.y === y))
+              className += ' highlight-gudo-target';
+            if (highlightGudoSelf.some((p) => p.x === x && p.y === y))
+              className += ' highlight-gudo-self';
+
+            let inner = null;
+            if (v > 0) {
+              const role = ROLES[player.roleIndex] || ROLES[0];
+              inner = e('div', { className: role.shape, style: { color } });
+            } else if (v < 0) {
+              const ownerIndex = Math.abs(v) - 1;
+              const owner = room.players[ownerIndex];
+              const baseColor = COLORS[owner.colorIndex || 0];
+              const darker = `rgb(${parseInt(baseColor.slice(1, 3), 16) * 0.6}, ${
+                parseInt(baseColor.slice(3, 5), 16) * 0.6
+              }, ${parseInt(baseColor.slice(5, 7), 16) * 0.6})`;
+              inner = e('div', {
+                className: 'grayX',
+                style: { color: darker },
+              });
+            }
+
+            cells.push(
+              e(
+                'div',
+                { key: `${x},${y}`, className, onClick: () => onPlace(x, y) },
+                inner
+              )
+            );
+          }
+        }
+
+        return e(
+          'div',
+          { className: 'board' },
+          e(
+            'div',
+            {
+              className: 'board-grid',
+              style: { gridTemplateColumns: `repeat(${size}, 28px)` },
+            },
+            cells
+          )
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('app')).render(e(App));
+    </script>
+  </body>
+</html>
