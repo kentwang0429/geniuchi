@@ -442,13 +442,44 @@
         border: 1px solid rgba(255, 255, 255, 0.14);
       }
 
-      /* 手機：滑動選卡（中心大、兩側小、3D） */
+      /* ===== 手機：滑動選卡（中心大、左右只露邊框、不擋中間、更順） ===== */
       .carousel {
         position: relative;
         height: min(520px, 66vh);
         overflow: hidden;
-        touch-action: pan-y;
+        /* 重要：完全交給我們處理手勢，避免頁面跟著滑 */
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
       }
+      /* 左右遮罩：讓旁邊卡淡出，只露邊邊 */
+      .carousel::before,
+      .carousel::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 64px;
+        z-index: 6;
+        pointer-events: none;
+      }
+      .carousel::before {
+        left: 0;
+        background: linear-gradient(
+          90deg,
+          rgba(11, 15, 25, 0.92),
+          rgba(11, 15, 25, 0)
+        );
+      }
+      .carousel::after {
+        right: 0;
+        background: linear-gradient(
+          270deg,
+          rgba(11, 15, 25, 0.92),
+          rgba(11, 15, 25, 0)
+        );
+      }
+
       .carouselInner {
         position: absolute;
         inset: 0;
@@ -457,6 +488,7 @@
         justify-content: center;
         perspective: 900px;
       }
+
       .roleCard {
         position: absolute;
         width: min(92vw, 420px);
@@ -476,7 +508,11 @@
         flex-direction: column;
         gap: 10px;
         transform-origin: center;
-        user-select: none;
+        /* 重要：非中心卡不吃事件，避免擋住中間 / 影響滑動 */
+        pointer-events: none;
+        will-change: transform, opacity, filter;
+        backface-visibility: hidden;
+        transform-style: preserve-3d;
       }
 
       .roleCardHeader {
@@ -1436,41 +1472,98 @@
         // ✅ 桌機：點擊後鎖定，hover 不再亂跳（仍可點別張改選）
         const [lockedIndex, setLockedIndex] = React.useState(null);
 
-        // ---- 手機滑動：pointer drag ----
-        const drag = React.useRef({ down: false, x0: 0, lastX: 0, dx: 0 });
+        // ===== 手機：更順的拖曳（卡片跟手指走） =====
+        const carouselRef = React.useRef(null);
+        const [dragPx, setDragPx] = React.useState(0);
+        const dragPxRef = React.useRef(0);
+        const rafRef = React.useRef(0);
+        const dragRef = React.useRef({
+          down: false,
+          x0: 0,
+          lastX: 0,
+          lastT: 0,
+          v: 0,
+          pointerId: null,
+        });
+
+        const snapPxRef = React.useRef(260);
+
+        React.useEffect(() => {
+          function recalc() {
+            const vw = window.innerWidth || 360;
+            const cardW = Math.min(vw * 0.92, 420);
+            snapPxRef.current = Math.max(200, Math.min(cardW * 0.78, 320));
+          }
+          recalc();
+          window.addEventListener('resize', recalc);
+          return () => window.removeEventListener('resize', recalc);
+        }, []);
+
+        function scheduleDragUpdate(px) {
+          dragPxRef.current = px;
+          if (rafRef.current) return;
+          rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = 0;
+            setDragPx(dragPxRef.current);
+          });
+        }
 
         function onPointerDown(ev) {
-          drag.current.down = true;
-          drag.current.x0 = ev.clientX;
-          drag.current.lastX = ev.clientX;
-          drag.current.dx = 0;
+          dragRef.current.down = true;
+          dragRef.current.x0 = ev.clientX;
+          dragRef.current.lastX = ev.clientX;
+          dragRef.current.lastT = performance.now();
+          dragRef.current.v = 0;
+          dragRef.current.pointerId = ev.pointerId;
+          scheduleDragUpdate(0);
           try {
             ev.currentTarget.setPointerCapture(ev.pointerId);
           } catch (e) {}
         }
 
         function onPointerMove(ev) {
-          if (!drag.current.down) return;
-          const x = ev.clientX;
-          drag.current.dx += x - drag.current.lastX;
-          drag.current.lastX = x;
+          if (!dragRef.current.down) return;
+          const now = performance.now();
+          const dx = ev.clientX - dragRef.current.lastX;
+          const dt = Math.max(8, now - dragRef.current.lastT);
+          // px/ms
+          dragRef.current.v = dx / dt;
+          dragRef.current.lastX = ev.clientX;
+          dragRef.current.lastT = now;
+
+          const total = ev.clientX - dragRef.current.x0;
+          scheduleDragUpdate(total);
         }
 
         function onPointerUp(ev) {
-          if (!drag.current.down) return;
-          drag.current.down = false;
+          if (!dragRef.current.down) return;
+          dragRef.current.down = false;
 
-          const totalDx = drag.current.lastX - drag.current.x0;
-          const threshold = 40;
-          if (Math.abs(totalDx) > threshold) {
-            if (totalDx < 0) setCurrent((c) => (c + 1) % n);
+          const total = dragPxRef.current;
+          const snapPx = snapPxRef.current;
+          const progress = clamp(-total / snapPx, -1, 1);
+          const v = dragRef.current.v;
+
+          // flick：速度夠就直接翻頁
+          const flick = Math.abs(v) > 0.65;
+
+          if (flick) {
+            if (v < 0) setCurrent((c) => (c + 1) % n);
             else setCurrent((c) => (c - 1 + n) % n);
+          } else {
+            if (progress > 0.28) setCurrent((c) => (c + 1) % n);
+            else if (progress < -0.28) setCurrent((c) => (c - 1 + n) % n);
           }
 
-          drag.current.dx = 0;
+          scheduleDragUpdate(0);
+
           try {
             ev.currentTarget.releasePointerCapture(ev.pointerId);
           } catch (e) {}
+        }
+
+        function clamp(v, a, b) {
+          return Math.max(a, Math.min(b, v));
         }
 
         function shortDelta(i, c) {
@@ -1488,6 +1581,10 @@
         });
 
         const role = ROLES[current];
+
+        // 拖曳進度：左滑為正（往下一張）
+        const snapPx = snapPxRef.current;
+        const dragProgress = clamp(-dragPx / snapPx, -1, 1);
 
         return e(
           'div',
@@ -1528,10 +1625,11 @@
             'div',
             { className: 'roleMain' },
 
-            // 手機滑動 deck
+            // 手機滑動 deck（更順：跟手走 + 左右只露邊框）
             e(
               'div',
               {
+                ref: carouselRef,
                 className: 'carousel',
                 onPointerDown,
                 onPointerMove,
@@ -1542,20 +1640,50 @@
                 { className: 'carouselInner' },
                 ROLES.map((r, i) => {
                   const d = shortDelta(i, current);
-                  const abs = Math.abs(d);
-                  const scale = d === 0 ? 1.0 : abs === 1 ? 0.86 : 0.72;
-                  const opacity = d === 0 ? 1.0 : abs === 1 ? 0.78 : 0.45;
-                  const tx = d * 62; // %
-                  const rz = d * -7;
-                  const ry = d * 14;
+                  // 拖曳時，等效中心會偏移
+                  const de = d - dragProgress;
+                  const ae = Math.abs(de);
+
+                  // 位置：相鄰推更遠（只露邊），更遠的幾乎不顯示
+                  const baseShift = 112; // 讓左右只露出一小段
+                  const extra = ae > 1.35 ? 26 : 0;
+                  const tx = de * (baseShift + extra);
+
+                  // 3D/縮放：中心更突出
+                  const scale = ae < 0.01 ? 1.0 : ae < 1.0 ? 0.94 : 0.88;
+                  const ry = clamp(de, -2, 2) * 12;
+                  const rz = clamp(de, -2, 2) * -3.5;
+
+                  // 透明/模糊：相鄰更淡，遠的直接消失
+                  const opacity =
+                    ae < 0.35 ? 1.0 : ae < 1.2 ? 0.22 : ae < 2.1 ? 0.06 : 0;
+                  const blur = ae < 0.35 ? 0 : ae < 1.2 ? 0.6 : 1.2;
+                  const sat = ae < 0.35 ? 1.08 : 0.85;
+                  const contrast = ae < 0.35 ? 1.06 : 0.95;
+
+                  const isCenter = ae < 0.35;
 
                   const style = {
-                    transform: `translateX(${tx}%) rotateY(${ry}deg) rotateZ(${rz}deg) scale(${scale})`,
+                    transform: `translate3d(${tx}%, 0, 0) rotateY(${ry}deg) rotateZ(${rz}deg) scale(${scale})`,
                     opacity,
-                    transition: drag.current.down
+                    filter: `blur(${blur}px) saturate(${sat}) contrast(${contrast})`,
+                    zIndex: 1000 - Math.round(ae * 50),
+                    transition: dragRef.current.down
                       ? 'none'
-                      : 'transform 260ms ease, opacity 260ms ease',
+                      : 'transform 220ms cubic-bezier(.2,.9,.2,1), opacity 220ms ease, filter 220ms ease',
+                    pointerEvents: isCenter ? 'auto' : 'none',
+                    boxShadow: isCenter
+                      ? '0 34px 90px rgba(0,0,0,0.62)'
+                      : '0 18px 55px rgba(0,0,0,0.45)',
+                    borderColor: isCenter
+                      ? 'rgba(255,255,255,0.28)'
+                      : 'rgba(255,255,255,0.12)',
                   };
+
+                  // 遠卡完全不渲染點擊感（但保留布局）
+                  if (opacity === 0) {
+                    style.transform = `translate3d(${tx}%,0,0) scale(0.72)`;
+                  }
 
                   return e(
                     'div',
