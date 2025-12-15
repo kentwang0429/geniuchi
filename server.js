@@ -1,3 +1,4 @@
+// ================= server.js (12111902) =================
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -5,34 +6,13 @@ const path = require('path');
 const GameManager = require('./gameManager');
 
 const app = express();
-
-// ✅ 雲端平台通常會給 PORT 環境變數（Render/Fly/Railway/StackBlitz 某些模式）
-const PORT = Number(process.env.PORT) || 3000;
-
-// 有些容器/平台需要 0.0.0.0 才能被外部連到
-const HOST = '0.0.0.0';
-
 const server = http.createServer(app);
-
-// ✅ 若你部署後「前端跟後端不同網域」需要 CORS
-// 先用最寬鬆的設定，之後上線可收斂成指定網域
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
-  },
-});
+const io = new Server(server);
 
 const rooms = {};
 const gameManager = new GameManager(io, rooms);
 
 app.use(express.static(path.join(__dirname, 'public')));
-
-// health check（部署平台常用）
-app.get('/healthz', (req, res) => {
-  res.status(200).send('ok');
-});
-
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -40,7 +20,11 @@ app.get('/', (req, res) => {
 io.on('connection', (socket) => {
   // === 房間系統 ===
   socket.on('createRoom', (data, cb) => {
-    const roomId = Math.random().toString(36).slice(2, 8);
+    let roomId = '';
+    do {
+      roomId = String(Math.floor(11 + Math.random() * 89)); // 11~99
+    } while (rooms[roomId]); // 避免撞號
+
     const room = {
       id: roomId,
       maxPlayers: data.maxPlayers || 4,
@@ -55,7 +39,6 @@ io.on('connection', (socket) => {
       ginyuState: null,
       gudoState: null,
     };
-
     room.players.push({
       id: socket.id,
       name: data.name || 'Player',
@@ -68,18 +51,17 @@ io.on('connection', (socket) => {
       usedGudoThisTurn: false,
       wins: 0,
     });
-
     rooms[roomId] = room;
     socket.join(roomId);
-    cb && cb({ ok: true, room });
+    cb({ ok: true, room });
     io.to(roomId).emit('roomUpdated', room);
   });
 
   socket.on('joinRoom', (data, cb) => {
     const room = rooms[data.roomId];
-    if (!room) return cb && cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb({ ok: false, message: '房間不存在' });
     if (room.players.length >= room.maxPlayers)
-      return cb && cb({ ok: false, message: '房間已滿' });
+      return cb({ ok: false, message: '房間已滿' });
 
     room.players.push({
       id: socket.id,
@@ -95,7 +77,7 @@ io.on('connection', (socket) => {
     });
 
     socket.join(room.id);
-    cb && cb({ ok: true, room });
+    cb({ ok: true, room });
     io.to(room.id).emit('roomUpdated', room);
   });
 
@@ -103,29 +85,29 @@ io.on('connection', (socket) => {
   socket.on('pickColor', (data, cb) => {
     const room = rooms[data.roomId];
     const p = room?.players.find((p) => p.id === socket.id);
-    if (!p) return cb && cb({ ok: false });
+    if (!p) return cb({ ok: false });
     p.colorIndex = data.colorIndex;
-    cb && cb({ ok: true, room });
+    cb({ ok: true, room });
     io.to(room.id).emit('roomUpdated', room);
   });
 
   socket.on('pickRole', (data, cb) => {
     const room = rooms[data.roomId];
     const p = room?.players.find((p) => p.id === socket.id);
-    if (!p) return cb && cb({ ok: false });
+    if (!p) return cb({ ok: false });
     p.roleIndex = data.roleIndex;
-    cb && cb({ ok: true, room });
+    cb({ ok: true, room });
     io.to(room.id).emit('roomUpdated', room);
   });
 
   socket.on('readyUp', (data, cb) => {
     const room = rooms[data.roomId];
     const p = room?.players.find((p) => p.id === socket.id);
-    if (!p) return cb && cb({ ok: false });
+    if (!p) return cb({ ok: false });
     if (p.colorIndex === null || p.roleIndex === null)
-      return cb && cb({ ok: false, message: '請先選擇顏色與角色' });
+      return cb({ ok: false, message: '請先選擇顏色與角色' });
     p.ready = true;
-    cb && cb({ ok: true, room });
+    cb({ ok: true, room });
     io.to(room.id).emit('roomUpdated', room);
   });
 
@@ -193,6 +175,6 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-});
+server.listen(3000, () =>
+  console.log('✅ Server running on http://localhost:3000')
+);
