@@ -206,6 +206,30 @@
         border-radius: 50%;
         background: currentColor;
       }
+      /* ===== 吉斯：倒過來的 V（粗箭頭感） ===== */
+      .jeice {
+        position: relative;
+        width: 22px;
+        height: 22px;
+      }
+      .jeice::before,
+      .jeice::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 50%;
+        width: 6px; /* 粗度 */
+        height: 20px; /* 長度 */
+        background: currentColor;
+        border-radius: 6px;
+        transform-origin: 50% 0%; /* 在上方交會 => 倒V(∧) */
+      }
+      .jeice::before {
+        transform: translateX(-50%) rotate(38deg);
+      }
+      .jeice::after {
+        transform: translateX(-50%) rotate(-38deg);
+      }
       .star::before {
         content: '★';
         font-size: 26px;
@@ -295,6 +319,7 @@
         padding: 12px;
       }
       .board {
+        position: relative;
         border: 1px solid rgba(255, 255, 255, 0.14);
         background: rgba(255, 255, 255, 0.06);
         display: inline-block;
@@ -329,6 +354,12 @@
       .highlight-gudo-self {
         outline: 2px solid #35c66a;
       }
+      .highlight-jeice-source {
+        outline: 2px solid rgba(255, 77, 77, 0.95);
+      }
+      .highlight-jeice-target {
+        outline: 2px dashed rgba(255, 77, 77, 0.95);
+      }
 
       .grayX {
         position: relative;
@@ -351,6 +382,108 @@
       }
       .grayX::after {
         transform: translate(-50%, -50%) rotate(-45deg);
+      }
+
+      /* ===== Jeice FX layer ===== */
+      .fxLayer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .jeiceOrb {
+        position: absolute;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: rgba(255, 40, 40, 0.92);
+        filter: drop-shadow(0 0 10px rgba(255, 40, 40, 0.75));
+        transform: translate3d(0, 0, 0) scale(1);
+        animation: jeiceMove 320ms cubic-bezier(0.15, 0.9, 0.25, 1) forwards;
+      }
+      .jeiceOrb::after {
+        content: '';
+        position: absolute;
+        inset: -10px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          rgba(255, 40, 40, 0.55),
+          rgba(255, 40, 40, 0)
+        );
+        animation: jeicePulse 320ms ease-out forwards;
+      }
+      .jeiceOrb.secondary {
+        animation-delay: 200ms;
+      }
+      .jeiceOrb.secondary::after {
+        animation-delay: 200ms;
+      }
+
+      @keyframes jeiceMove {
+        to {
+          transform: translate3d(
+              calc(var(--dx) * 1px),
+              calc(var(--dy) * 1px),
+              0
+            )
+            scale(0.92);
+        }
+      }
+      @keyframes jeicePulse {
+        0% {
+          opacity: 0.9;
+          transform: scale(0.85);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(1.25);
+        }
+      }
+
+      .fx-shake {
+        animation: fxShake 260ms ease-out;
+      }
+      @keyframes fxShake {
+        0% {
+          transform: translate3d(0, 0, 0);
+        }
+        25% {
+          transform: translate3d(1px, 0, 0);
+        }
+        50% {
+          transform: translate3d(-1px, 0, 0);
+        }
+        75% {
+          transform: translate3d(1px, 0, 0);
+        }
+        100% {
+          transform: translate3d(0, 0, 0);
+        }
+      }
+
+      .fx-pop::after {
+        content: '';
+        position: absolute;
+        inset: 4px;
+        border-radius: 10px;
+        background: rgba(255, 40, 40, 0.12);
+        border: 1px solid rgba(255, 40, 40, 0.28);
+        animation: fxPop 520ms ease-out forwards;
+        pointer-events: none;
+      }
+      @keyframes fxPop {
+        0% {
+          opacity: 0;
+          transform: scale(0.75);
+        }
+        25% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(1.1);
+        }
       }
 
       /* ===== 選角：全螢幕 ===== */
@@ -447,12 +580,10 @@
         position: relative;
         height: min(520px, 66vh);
         overflow: hidden;
-        /* 重要：完全交給我們處理手勢，避免頁面跟著滑 */
         touch-action: none;
         -webkit-user-select: none;
         user-select: none;
       }
-      /* 左右遮罩：讓旁邊卡淡出，只露邊邊 */
       .carousel::before,
       .carousel::after {
         content: '';
@@ -508,7 +639,6 @@
         flex-direction: column;
         gap: 10px;
         transform-origin: center;
-        /* 重要：非中心卡不吃事件，避免擋住中間 / 影響滑動 */
         pointer-events: none;
         will-change: transform, opacity, filter;
         backface-visibility: hidden;
@@ -558,7 +688,6 @@
         color: var(--text);
       }
 
-      /* 桌機：滿版並排大卡（hover 放大，其他淡化；點擊後鎖定） */
       .desktopDeck {
         display: none;
         height: min(520px, 70vh);
@@ -715,6 +844,11 @@
           shape: 'triangle',
           desc: '回合開始可移動：選自己的古杜棋，選周圍一格的敵方棋，將其移到該棋周圍空格。',
         },
+        {
+          name: '吉斯',
+          shape: 'jeice',
+          desc: '粉碎球・擊退：發動後落子，若新落子相鄰(8方向)有敵方一般棋，可選 1 顆將其往遠離方向擊退（最多 2 格；需後方是空格；不能擊退灰叉）。',
+        },
       ];
 
       function connectSocket() {
@@ -774,11 +908,23 @@
         );
         const [highlightGudoSelf, setHighlightGudoSelf] = React.useState([]);
 
+        const [highlightJeiceTargets, setHighlightJeiceTargets] =
+          React.useState([]);
+        const [highlightJeiceSource, setHighlightJeiceSource] =
+          React.useState(null);
+
         const [ginyuMode, setGinyuMode] = React.useState(false);
         const [gudoMode, setGudoMode] = React.useState(false);
+        const [jeiceMode, setJeiceMode] = React.useState(false);
+        const [jeiceStep, setJeiceStep] = React.useState('idle'); // idle | place | selectTarget
+
         const [turnInfo, setTurnInfo] = React.useState('');
 
         const [copied, setCopied] = React.useState(false);
+
+        // ✅ Jeice FX
+        const [fx, setFx] = React.useState(null);
+        const fxTimerRef = React.useRef(null);
 
         // ✅ 賽後保留 10 秒（保留終局棋盤）
         const [postGame, setPostGame] = React.useState(null); // { winnerName, secondsLeft, finalBoard }
@@ -842,6 +988,16 @@
               };
             });
 
+            // ✅ Jeice FX（由 server 傳 effect）
+            if (payload?.effect?.type === 'jeice') {
+              if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
+              setFx(payload.effect);
+              fxTimerRef.current = setTimeout(() => {
+                setFx(null);
+                fxTimerRef.current = null;
+              }, 900);
+            }
+
             if (payload.win) {
               const r = roomRef.current;
               const winner = r?.players?.[payload.win.winnerIndex];
@@ -859,6 +1015,11 @@
             setGinyuMode(false);
             setGudoMode(false);
             if (roomRef.current) roomRef.current.gudoClientStep = 'idle';
+
+            setHighlightJeiceTargets([]);
+            setHighlightJeiceSource(null);
+            setJeiceMode(false);
+            setJeiceStep('idle');
 
             updateTurnInfo(roomRef.current);
           });
@@ -878,6 +1039,14 @@
             if (payload?.message) alert(payload.message);
           });
 
+          s.on('jeiceCancelled', (payload) => {
+            setHighlightJeiceTargets([]);
+            setHighlightJeiceSource(null);
+            setJeiceMode(false);
+            setJeiceStep('idle');
+            if (payload?.message) alert(payload.message);
+          });
+
           return () => {
             try {
               s.disconnect();
@@ -889,6 +1058,7 @@
           return () => {
             if (postGameTimerRef.current)
               clearInterval(postGameTimerRef.current);
+            if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
           };
         }, []);
 
@@ -1011,9 +1181,70 @@
           setGinyuMode(false);
         }
 
+        function cancelJeice() {
+          try {
+            socket?.emit('jeiceCancel', { roomId: room?.id }, () => {});
+          } catch (e) {}
+          setHighlightJeiceTargets([]);
+          setHighlightJeiceSource(null);
+          setJeiceMode(false);
+          setJeiceStep('idle');
+        }
+
         function place(x, y) {
           if (!room || room.status !== 'PLAYING') return;
 
+          // ===== Jeice（發動後：先落子，再選擊退目標） =====
+          if (jeiceMode) {
+            if (jeiceStep === 'place') {
+              socket.emit('jeicePlace', { roomId: room.id, x, y }, (res) => {
+                if (res?.ok) {
+                  setHighlightJeiceSource({ x, y });
+                  const targets = Array.isArray(res.targets) ? res.targets : [];
+                  if (targets.length) {
+                    setHighlightJeiceTargets(targets);
+                    setJeiceStep('selectTarget');
+                  } else {
+                    // 沒有可擊退目標：技能流程結束（落子已生效）
+                    setJeiceMode(false);
+                    setJeiceStep('idle');
+                  }
+                } else {
+                  if (res?.message) alert(res.message);
+                  cancelJeice();
+                }
+              });
+              return;
+            }
+
+            if (jeiceStep === 'selectTarget') {
+              const inTargets = highlightJeiceTargets.some(
+                (p) => p.x === x && p.y === y
+              );
+
+              // 點到非目標：視為放棄擊退（落子仍有效）
+              if (!inTargets) {
+                cancelJeice(); // ✅ 通知 server 結束吉斯流程/結束回合，避免卡死
+                return;
+              }
+
+              socket.emit(
+                'jeiceSelectTarget',
+                { roomId: room.id, x, y },
+                (res) => {
+                  if (!res?.ok && res?.message) alert(res.message);
+                  // 最終盤面 / 特效會由 server 透過 placed 廣播
+                  setHighlightJeiceTargets([]);
+                  setHighlightJeiceSource(null);
+                  setJeiceMode(false);
+                  setJeiceStep('idle');
+                }
+              );
+              return;
+            }
+          }
+
+          // ===== 基紐 =====
           if (ginyuMode) {
             const inSources = highlightSources.some(
               (p) => p.x === x && p.y === y
@@ -1065,6 +1296,7 @@
             return;
           }
 
+          // ===== 古杜 =====
           if (gudoMode) {
             const localRoom = roomRef.current || room;
 
@@ -1098,6 +1330,8 @@
                 { roomId: localRoom.id, x, y },
                 (res) => {
                   if (res.ok) {
+                    // ✅ UI 修正：進入第二段（選移動位置）時，把第一段「實線」提示拿掉，避免重疊
+                    setHighlightGudo([]);
                     setHighlightGudoTargets(res.emptyAround || []);
                     localRoom.gudoClientStep = 'selectMove';
                   } else {
@@ -1125,6 +1359,7 @@
             }
           }
 
+          // ===== 一般落子 =====
           socket.emit('place', { roomId: room.id, x, y }, (res) => {
             if (!res.ok && res.message) alert(res.message);
           });
@@ -1148,6 +1383,19 @@
               setHighlightGudoSelf(res.sources || []);
               if (roomRef.current) roomRef.current.gudoClientStep = 'idle';
             } else alert(res.message);
+          });
+        }
+
+        function activateJeice() {
+          socket.emit('jeiceAbilityStart', { roomId: room.id }, (res) => {
+            if (res?.ok) {
+              setJeiceMode(true);
+              setJeiceStep('place');
+              setHighlightJeiceTargets([]);
+              setHighlightJeiceSource(null);
+            } else {
+              alert(res?.message || '無法發動吉斯能力');
+            }
           });
         }
 
@@ -1406,8 +1654,43 @@
                         },
                         '發動古杜能力'
                       )
+                    : null,
+                  isMyTurn && me?.roleIndex === 5
+                    ? e(
+                        'button',
+                        {
+                          onClick: activateJeice,
+                          style: { background: 'rgba(255,40,40,0.30)' },
+                        },
+                        jeiceMode
+                          ? jeiceStep === 'place'
+                            ? '吉斯：請先落子'
+                            : '吉斯：選擇擊退目標'
+                          : '發動吉斯能力'
+                      )
+                    : null,
+                  isMyTurn && me?.roleIndex === 5 && jeiceMode
+                    ? e(
+                        'button',
+                        {
+                          onClick: cancelJeice,
+                          style: {
+                            background: 'rgba(255,255,255,0.10)',
+                            border: '1px solid rgba(255,255,255,0.18)',
+                          },
+                        },
+                        '取消吉斯'
+                      )
                     : null
-                )
+                ),
+                jeiceMode &&
+                  e(
+                    'div',
+                    { className: 'hint', style: { marginTop: 8 } },
+                    jeiceStep === 'place'
+                      ? '吉斯：請點空格落子（落子後若有相鄰敵方一般棋，可再點 1 顆擊退）'
+                      : '吉斯：點紅色虛線目標以擊退；點其他地方可放棄擊退（落子仍有效）'
+                  )
               ),
               e(
                 'div',
@@ -1422,6 +1705,9 @@
                       highlightGudo,
                       highlightGudoTargets,
                       highlightGudoSelf,
+                      highlightJeiceTargets,
+                      highlightJeiceSource,
+                      fx,
                     })
                   : e('div', null, '尚未開始遊戲')
               )
@@ -1469,10 +1755,8 @@
           typeof selectedRole === 'number' ? selectedRole : 0
         );
 
-        // ✅ 桌機：點擊後鎖定，hover 不再亂跳（仍可點別張改選）
         const [lockedIndex, setLockedIndex] = React.useState(null);
 
-        // ===== 手機：更順的拖曳（卡片跟手指走） =====
         const carouselRef = React.useRef(null);
         const [dragPx, setDragPx] = React.useState(0);
         const dragPxRef = React.useRef(0);
@@ -1526,7 +1810,6 @@
           const now = performance.now();
           const dx = ev.clientX - dragRef.current.lastX;
           const dt = Math.max(8, now - dragRef.current.lastT);
-          // px/ms
           dragRef.current.v = dx / dt;
           dragRef.current.lastX = ev.clientX;
           dragRef.current.lastT = now;
@@ -1544,7 +1827,6 @@
           const progress = clamp(-total / snapPx, -1, 1);
           const v = dragRef.current.v;
 
-          // flick：速度夠就直接翻頁
           const flick = Math.abs(v) > 0.65;
 
           if (flick) {
@@ -1582,7 +1864,6 @@
 
         const role = ROLES[current];
 
-        // 拖曳進度：左滑為正（往下一張）
         const snapPx = snapPxRef.current;
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
 
@@ -1625,7 +1906,6 @@
             'div',
             { className: 'roleMain' },
 
-            // 手機滑動 deck（更順：跟手走 + 左右只露邊框）
             e(
               'div',
               {
@@ -1640,21 +1920,17 @@
                 { className: 'carouselInner' },
                 ROLES.map((r, i) => {
                   const d = shortDelta(i, current);
-                  // 拖曳時，等效中心會偏移
                   const de = d - dragProgress;
                   const ae = Math.abs(de);
 
-                  // 位置：相鄰推更遠（只露邊），更遠的幾乎不顯示
-                  const baseShift = 112; // 讓左右只露出一小段
+                  const baseShift = 112;
                   const extra = ae > 1.35 ? 26 : 0;
                   const tx = de * (baseShift + extra);
 
-                  // 3D/縮放：中心更突出
                   const scale = ae < 0.01 ? 1.0 : ae < 1.0 ? 0.94 : 0.88;
                   const ry = clamp(de, -2, 2) * 12;
                   const rz = clamp(de, -2, 2) * -3.5;
 
-                  // 透明/模糊：相鄰更淡，遠的直接消失
                   const opacity =
                     ae < 0.35 ? 1.0 : ae < 1.2 ? 0.22 : ae < 2.1 ? 0.06 : 0;
                   const blur = ae < 0.35 ? 0 : ae < 1.2 ? 0.6 : 1.2;
@@ -1680,7 +1956,6 @@
                       : 'rgba(255,255,255,0.12)',
                   };
 
-                  // 遠卡完全不渲染點擊感（但保留布局）
                   if (opacity === 0) {
                     style.transform = `translate3d(${tx}%,0,0) scale(0.72)`;
                   }
@@ -1717,7 +1992,7 @@
                         e(
                           'b',
                           null,
-                          i === 1
+                          i === 1 || i === 5
                             ? '進攻'
                             : i === 0 || i === 4
                             ? '操作'
@@ -1736,7 +2011,6 @@
               )
             ),
 
-            // 桌機並排 deck（滿版）：hover 只在「尚未鎖定」時生效
             e(
               'div',
               { className: 'desktopDeck' },
@@ -1753,7 +2027,7 @@
                     },
                     onClick: () => {
                       setCurrent(i);
-                      setLockedIndex(i); // ✅ 點擊後鎖定
+                      setLockedIndex(i);
                     },
                   },
                   e(
@@ -1777,7 +2051,11 @@
                       e(
                         'b',
                         null,
-                        i === 1 ? '進攻' : i === 0 || i === 4 ? '操作' : '控制'
+                        i === 1 || i === 5
+                          ? '進攻'
+                          : i === 0 || i === 4
+                          ? '操作'
+                          : '控制'
                       )
                     ),
                     e(
@@ -1820,9 +2098,17 @@
         highlightGudo,
         highlightGudoTargets,
         highlightGudoSelf,
+        highlightJeiceTargets,
+        highlightJeiceSource,
+        fx,
       }) {
         const size = board.length;
         const cells = [];
+
+        function isFxCell(pos, x, y) {
+          return pos && pos.x === x && pos.y === y;
+        }
+
         for (let y = 0; y < size; y++) {
           for (let x = 0; x < size; x++) {
             const v = board[y][x];
@@ -1841,6 +2127,18 @@
               className += ' highlight-gudo-target';
             if (highlightGudoSelf.some((p) => p.x === x && p.y === y))
               className += ' highlight-gudo-self';
+
+            if (highlightJeiceTargets.some((p) => p.x === x && p.y === y))
+              className += ' highlight-jeice-target';
+            if (
+              highlightJeiceSource &&
+              highlightJeiceSource.x === x &&
+              highlightJeiceSource.y === y
+            )
+              className += ' highlight-jeice-source';
+
+            if (isFxCell(fx?.target, x, y)) className += ' fx-shake';
+            if (isFxCell(fx?.to, x, y)) className += ' fx-pop';
 
             let inner = null;
             if (v > 0) {
@@ -1871,6 +2169,26 @@
           }
         }
 
+        function orbStyle(from, to) {
+          if (!from || !to) return null;
+          const cell = 28;
+          const pad = (cell - 22) / 2;
+          const sx = from.x * cell + pad;
+          const sy = from.y * cell + pad;
+          const dx = (to.x - from.x) * cell;
+          const dy = (to.y - from.y) * cell;
+          return {
+            left: sx + 'px',
+            top: sy + 'px',
+            '--dx': dx,
+            '--dy': dy,
+          };
+        }
+
+        const fx1 = fx?.type === 'jeice' ? orbStyle(fx.from, fx.target) : null;
+        const fx2 =
+          fx?.type === 'jeice' && fx?.to ? orbStyle(fx.target, fx.to) : null;
+
         return e(
           'div',
           { className: 'board' },
@@ -1881,7 +2199,25 @@
               style: { gridTemplateColumns: `repeat(${size}, 28px)` },
             },
             cells
-          )
+          ),
+          fx?.type === 'jeice'
+            ? e(
+                'div',
+                { className: 'fxLayer' },
+                fx1
+                  ? e('div', {
+                      className: 'jeiceOrb',
+                      style: fx1,
+                    })
+                  : null,
+                fx2
+                  ? e('div', {
+                      className: 'jeiceOrb secondary',
+                      style: fx2,
+                    })
+                  : null
+              )
+            : null
         );
       }
 
