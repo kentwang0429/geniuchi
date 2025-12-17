@@ -1,4 +1,4 @@
-// ================= server.js (12111902) =================
+// ================= server.js =================
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -38,7 +38,9 @@ io.on('connection', (socket) => {
       roundCount: 1,
       ginyuState: null,
       gudoState: null,
+      jeiceState: null, // ✅ 吉斯狀態
     };
+
     room.players.push({
       id: socket.id,
       name: data.name || 'Player',
@@ -49,8 +51,10 @@ io.on('connection', (socket) => {
       hasPlacedCross: false,
       usedGinyuThisTurn: false,
       usedGudoThisTurn: false,
+      usedJeiceThisTurn: false, // ✅
       wins: 0,
     });
+
     rooms[roomId] = room;
     socket.join(roomId);
     cb({ ok: true, room });
@@ -73,6 +77,7 @@ io.on('connection', (socket) => {
       hasPlacedCross: false,
       usedGinyuThisTurn: false,
       usedGudoThisTurn: false,
+      usedJeiceThisTurn: false, // ✅
       wins: 0,
     });
 
@@ -158,6 +163,26 @@ io.on('connection', (socket) => {
 
   socket.on('gudoMovePiece', (data, cb) => {
     gameManager.gudoMovePiece(socket, data, cb);
+  });
+
+  // ✅ 吉斯能力事件（Jeice）
+  socket.on('jeiceAbilityStart', (data, cb) => {
+    gameManager.jeiceAbilityStart(socket, data, cb);
+  });
+
+  // 吉斯：先落子（只能空格、不能叉叉；落子後回傳可擊退 targets）
+  socket.on('jeicePlace', (data, cb) => {
+    gameManager.jeicePlace(socket, data, cb);
+  });
+
+  // 吉斯：選擇要擊退的相鄰敵方「一般棋」
+  socket.on('jeiceSelectTarget', (data, cb) => {
+    gameManager.jeiceSelectTarget(socket, data, cb);
+  });
+
+  // 吉斯：取消（放棄整段技能流程；若已落子，依 gameManager 規則處理）
+  socket.on('jeiceCancel', (data, cb) => {
+    gameManager.jeiceCancel(socket, data, cb || (() => {}));
   });
 
   // === 斷線處理 ===
