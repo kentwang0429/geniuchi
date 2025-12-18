@@ -1,24 +1,22 @@
-// ================= gameManager.js (Jeice push fix) =================
-// 特色修正：
-// 1) 吉斯（Jeice）「粉碎球・擊退」：落子後可選相鄰敵方一般棋，往遠離方向擊退（優先 2 格，否則 1 格；需落點空格；不能推灰叉）
-// 2) 修正 UI 卡住常見原因：jeiceSelectTarget / jeiceCancel 一定會 cb + 一定會結束回合（或取消）
-// 3) 保留既有：巴特 6 連線勝利、古杜 move 只能到目標周圍空格、基紐 swap 後檢查全盤勝利
+// ================= gameManager.js (DUAL + role-token) =================
 
 class GameManager {
   constructor(io, rooms) {
     this.io = io;
     this.rooms = rooms;
 
-    // 定義角色能力統一結構
+    // ✅ 與前端賽後倒數一致：10 秒後回 Lobby 並重選角
+    this.POST_GAME_MS = 10500;
+
     this.roleAbilities = {
       0: {
         name: '基紐',
         maxMoves: 1,
         canOverride: false,
         canUseCross: false,
-        place(board, x, y, playerIndex) {
+        place(board, x, y, token) {
           if (board[y][x] !== 0) throw new Error('該位置已有棋子');
-          board[y][x] = playerIndex + 1;
+          board[y][x] = token;
         },
       },
       1: {
@@ -26,9 +24,9 @@ class GameManager {
         maxMoves: 2,
         canOverride: false,
         canUseCross: false,
-        place(board, x, y, playerIndex) {
+        place(board, x, y, token) {
           if (board[y][x] !== 0) throw new Error('該位置已有棋子');
-          board[y][x] = playerIndex + 1;
+          board[y][x] = token;
         },
       },
       2: {
@@ -36,9 +34,9 @@ class GameManager {
         maxMoves: 1,
         canOverride: true,
         canUseCross: false,
-        place(board, x, y, playerIndex) {
+        place(board, x, y, token) {
           if (board[y][x] < 0) throw new Error('不能放在叉叉上');
-          board[y][x] = playerIndex + 1;
+          board[y][x] = token;
         },
       },
       3: {
@@ -46,12 +44,12 @@ class GameManager {
         maxMoves: 2,
         canOverride: false,
         canUseCross: true,
-        place(board, x, y, playerIndex, placedThisTurn) {
+        place(board, x, y, token, playerIndex, placedThisTurn) {
           if (placedThisTurn === 0) {
             if (board[y][x] === -(playerIndex + 1)) {
-              board[y][x] = playerIndex + 1;
+              board[y][x] = token;
             } else if (board[y][x] === 0) {
-              board[y][x] = playerIndex + 1;
+              board[y][x] = token;
             } else {
               throw new Error('此處不可放置');
             }
@@ -68,9 +66,9 @@ class GameManager {
         maxMoves: 1,
         canOverride: false,
         canUseCross: false,
-        place(board, x, y, playerIndex) {
+        place(board, x, y, token) {
           if (board[y][x] !== 0) throw new Error('該位置已有棋子');
-          board[y][x] = playerIndex + 1;
+          board[y][x] = token;
         },
       },
       5: {
@@ -78,9 +76,9 @@ class GameManager {
         maxMoves: 1,
         canOverride: false,
         canUseCross: false,
-        place(board, x, y, playerIndex) {
+        place(board, x, y, token) {
           if (board[y][x] !== 0) throw new Error('該位置已有棋子');
-          board[y][x] = playerIndex + 1;
+          board[y][x] = token;
         },
       },
     };
@@ -90,17 +88,40 @@ class GameManager {
     return Array.from({ length: size }, () => Array(size).fill(0));
   }
 
-  // === 遊戲控制 ===
+  _tokenOf(playerIndex, slot) {
+    return playerIndex * 2 + slot;
+  }
+
+  _decodeToken(token) {
+    const ownerIndex = Math.floor((token - 1) / 2);
+    const slot = ((token - 1) % 2) + 1;
+    return { ownerIndex, slot };
+  }
+
+  _getActiveSlot(room) {
+    return room.mode === 'DUAL' ? room.turnSlot || 1 : 1;
+  }
+
+  _getActiveRoleIndex(room, player, slot) {
+    if (!player) return null;
+    if (room.mode === 'DUAL') {
+      return slot === 2 ? player.roleIndex2 : player.roleIndex1;
+    }
+    return player.roleIndex;
+  }
+
   startGame(roomId) {
     const room = this.rooms[roomId];
     if (!room) return;
     room.status = 'PLAYING';
     room.turnIndex = 0;
+    room.turnSlot = room.mode === 'DUAL' ? 1 : 1;
     room.roundCount = 1;
     room.board = this.createEmptyBoard(room.boardSize || 15);
     room.ginyuState = null;
     room.gudoState = null;
     room.jeiceState = null;
+
     room.players.forEach((p) => {
       p.placedThisTurn = 0;
       p.ready = false;
@@ -109,6 +130,7 @@ class GameManager {
       p.usedJeiceThisTurn = false;
       if (p.wins === undefined) p.wins = 0;
     });
+
     this.io.to(roomId).emit('roomUpdated', room);
   }
 
@@ -120,19 +142,30 @@ class GameManager {
     room.ginyuState = null;
     room.gudoState = null;
     room.jeiceState = null;
+
+    room.turnIndex = 0;
+    room.turnSlot = room.mode === 'DUAL' ? 1 : 1;
+    room.roundCount = 1;
+
+    // ✅ 修改：不再清空顏色/角色，讓玩家可在賽後提前預選下一局
     room.players.forEach((p) => {
       p.ready = false;
       p.placedThisTurn = 0;
-      p.colorIndex = null;
-      p.roleIndex = null;
+
+      // 不清空：
+      // p.colorIndex = null;
+      // p.roleIndex = null;
+      // p.roleIndex1 = null;
+      // p.roleIndex2 = null;
+
       p.usedGinyuThisTurn = false;
       p.usedGudoThisTurn = false;
       p.usedJeiceThisTurn = false;
     });
+
     this.io.to(roomId).emit('roomUpdated', room);
   }
 
-  // === 放置棋子（一般落子） ===
   placePiece(socket, data, cb) {
     const { roomId, x, y } = data;
     const room = this.rooms[roomId];
@@ -146,25 +179,32 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    const role = this.roleAbilities[player.roleIndex];
-    if (!role) return cb({ ok: false, message: '角色未設定' });
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    const role = this.roleAbilities[roleIndex];
+    if (typeof roleIndex !== 'number' || !role)
+      return cb({ ok: false, message: '角色未設定' });
 
-    // 若玩家正在吉斯流程中，禁止用一般 place（避免卡死）
     if (room.jeiceState && room.jeiceState.playerIndex === playerIndex) {
       return cb({ ok: false, message: '吉斯能力進行中，請先完成或取消' });
     }
 
     const board = room.board;
+    const token = this._tokenOf(playerIndex, slot);
 
     try {
-      role.place(board, x, y, playerIndex, player.placedThisTurn);
+      if (roleIndex === 3) {
+        role.place(board, x, y, token, playerIndex, player.placedThisTurn);
+      } else {
+        role.place(board, x, y, token);
+      }
       player.placedThisTurn++;
     } catch (err) {
       return cb({ ok: false, message: err.message });
     }
 
-    const targetN = player.roleIndex === 1 ? 6 : room.targetN; // ✅ 巴特(1) 需要 6 連線
-    const win = this.checkWinner(board, x, y, playerIndex + 1, targetN);
+    const targetN = roleIndex === 1 ? 6 : room.targetN;
+    const win = this.checkWinner(board, x, y, token, targetN);
 
     if (win) {
       player.wins = (player.wins || 0) + 1;
@@ -172,13 +212,18 @@ class GameManager {
       room.ginyuState = null;
       room.gudoState = null;
       room.jeiceState = null;
+
       this.io.to(roomId).emit('placed', {
         board,
         win: { winnerIndex: playerIndex, winnerId: player.id },
         turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
         roundCount: room.roundCount,
+        status: room.status,
       });
-      setTimeout(() => this.restartGame(roomId), 2000);
+
+      // ✅ 延後 10 秒後回 Lobby（但不清空顏色/角色，允許先預選）
+      setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
       return cb({ ok: true, win: true });
     }
 
@@ -189,6 +234,7 @@ class GameManager {
     this.io.to(roomId).emit('placed', {
       board,
       turnIndex: room.turnIndex,
+      turnSlot: room.turnSlot || 1,
       roundCount: room.roundCount,
       status: room.status,
     });
@@ -199,7 +245,28 @@ class GameManager {
     const current = room.players[room.turnIndex];
     if (current) current.placedThisTurn = 0;
 
-    room.turnIndex = (room.turnIndex + 1) % room.players.length;
+    if (room.mode === 'DUAL') {
+      const lastIdx = room.players.length - 1;
+      if ((room.turnSlot || 1) === 1) {
+        if (room.turnIndex < lastIdx) {
+          room.turnIndex += 1;
+        } else {
+          room.turnIndex = 0;
+          room.turnSlot = 2;
+        }
+      } else {
+        if (room.turnIndex < lastIdx) {
+          room.turnIndex += 1;
+        } else {
+          room.turnIndex = 0;
+          room.turnSlot = 1;
+        }
+      }
+    } else {
+      room.turnIndex = (room.turnIndex + 1) % room.players.length;
+      room.turnSlot = 1;
+    }
+
     room.roundCount = (room.roundCount || 0) + 1;
 
     room.ginyuState = null;
@@ -211,18 +278,18 @@ class GameManager {
       next.usedGinyuThisTurn = false;
       next.usedGudoThisTurn = false;
       next.usedJeiceThisTurn = false;
+      next.placedThisTurn = 0;
     }
   }
 
-  // ====== 基紐能力取消（防呆） ======
   emitGinyuCancelled(socket, roomId, message) {
     this.io.to(socket.id).emit('ginyuCancelled', { message });
-
     const room = this.rooms[roomId];
     if (room) {
       this.io.to(roomId).emit('placed', {
         board: room.board,
         turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
         roundCount: room.roundCount,
         status: room.status,
       });
@@ -242,7 +309,9 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 0)
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    if (roleIndex !== 0)
       return cb({ ok: false, message: '只有基紐可以取消此能力' });
 
     room.ginyuState = null;
@@ -250,7 +319,6 @@ class GameManager {
     cb({ ok: true });
   }
 
-  // === 基紐能力 ===
   ginyuAbilityStart(socket, data, cb) {
     const { roomId } = data;
     const room = this.rooms[roomId];
@@ -264,7 +332,9 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 0)
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    if (roleIndex !== 0)
       return cb({ ok: false, message: '只有基紐可以使用此能力' });
 
     if (player.placedThisTurn && player.placedThisTurn > 0)
@@ -275,31 +345,31 @@ class GameManager {
 
     const board = room.board;
     const size = board.length;
-    const selfValue = playerIndex + 1;
+    const selfToken = this._tokenOf(playerIndex, slot);
     const sources = [];
 
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        if (board[y][x] !== selfValue) continue;
+    for (let yy = 0; yy < size; yy++) {
+      for (let xx = 0; xx < size; xx++) {
+        if (board[yy][xx] !== selfToken) continue;
 
         let canSwap = false;
         for (let cx = 0; cx < size; cx++) {
-          const v = board[y][cx];
-          if (v > 0 && v !== selfValue) {
+          const v = board[yy][cx];
+          if (v > 0 && v !== selfToken) {
             canSwap = true;
             break;
           }
         }
         if (!canSwap) {
           for (let cy = 0; cy < size; cy++) {
-            const v = board[cy][x];
-            if (v > 0 && v !== selfValue) {
+            const v = board[cy][xx];
+            if (v > 0 && v !== selfToken) {
               canSwap = true;
               break;
             }
           }
         }
-        if (canSwap) sources.push({ x, y });
+        if (canSwap) sources.push({ x: xx, y: yy });
       }
     }
 
@@ -308,6 +378,7 @@ class GameManager {
 
     room.ginyuState = {
       playerIndex,
+      selfToken,
       sources,
       source: null,
       targets: [],
@@ -329,7 +400,9 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 0)
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    if (roleIndex !== 0)
       return cb({ ok: false, message: '只有基紐可以使用此能力' });
 
     const state = room.ginyuState;
@@ -348,19 +421,19 @@ class GameManager {
 
     const board = room.board;
     const size = board.length;
-    const selfValue = playerIndex + 1;
+    const selfToken = state.selfToken;
     const targets = [];
 
     for (let cx = 0; cx < size; cx++) {
       const v = board[y][cx];
-      if (v > 0 && v !== selfValue) targets.push({ x: cx, y });
+      if (v > 0 && v !== selfToken) targets.push({ x: cx, y });
     }
 
     for (let cy = 0; cy < size; cy++) {
       const v = board[cy][x];
       if (
         v > 0 &&
-        v !== selfValue &&
+        v !== selfToken &&
         !targets.some((t) => t.x === x && t.y === cy)
       ) {
         targets.push({ x, y: cy });
@@ -392,7 +465,9 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 0)
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    if (roleIndex !== 0)
       return cb({ ok: false, message: '只有基紐可以使用此能力' });
 
     const state = room.ginyuState;
@@ -429,22 +504,24 @@ class GameManager {
         board,
         win: { winnerIndex: winner, winnerId: winPlayer.id },
         turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
         roundCount: room.roundCount,
+        status: room.status,
       });
-      setTimeout(() => this.restartGame(room.id), 2000);
+      setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
       return cb({ ok: true, win: true });
     }
 
     this.io.to(roomId).emit('placed', {
       board,
       turnIndex: room.turnIndex,
+      turnSlot: room.turnSlot || 1,
       roundCount: room.roundCount,
       status: room.status,
     });
     cb({ ok: true });
   }
 
-  // === 古杜能力 ===
   gudoAbilityStart(socket, data, cb) {
     const { roomId } = data;
     const room = this.rooms[roomId];
@@ -458,7 +535,9 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 4)
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    if (roleIndex !== 4)
       return cb({ ok: false, message: '只有古杜可以使用此能力' });
     if (player.usedGudoThisTurn)
       return cb({ ok: false, message: '本回合已使用過古杜能力' });
@@ -468,12 +547,12 @@ class GameManager {
 
     const board = room.board;
     const size = board.length;
-    const selfValue = playerIndex + 1;
+    const selfToken = this._tokenOf(playerIndex, slot);
     const sources = [];
 
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        if (board[y][x] === selfValue) sources.push({ x, y });
+    for (let yy = 0; yy < size; yy++) {
+      for (let xx = 0; xx < size; xx++) {
+        if (board[yy][xx] === selfToken) sources.push({ x: xx, y: yy });
       }
     }
 
@@ -482,6 +561,7 @@ class GameManager {
 
     room.gudoState = {
       playerIndex,
+      selfToken,
       step: 'selectSource',
       source: null,
       target: null,
@@ -504,14 +584,16 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 4)
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    if (roleIndex !== 4)
       return cb({ ok: false, message: '只有古杜可以使用此能力' });
 
     const state = room.gudoState;
     if (!state || state.playerIndex !== playerIndex)
       return cb({ ok: false, message: '尚未啟動古杜能力' });
 
-    if (room.board?.[y]?.[x] !== playerIndex + 1)
+    if (room.board?.[y]?.[x] !== state.selfToken)
       return cb({ ok: false, message: '請選擇自己的古杜棋' });
 
     state.source = { x, y };
@@ -536,7 +618,7 @@ class GameManager {
     let hasOther = false;
     for (const p of area) {
       const v = room.board[p.y][p.x];
-      if (v > 0 && v !== playerIndex + 1) {
+      if (v > 0 && v !== state.selfToken) {
         hasOther = true;
         break;
       }
@@ -545,7 +627,7 @@ class GameManager {
     if (!hasOther) {
       room.gudoState = null;
       this.io.to(roomId).emit('gudoCancelled');
-      return cb({ ok: false, message: '周圍沒有其他玩家棋子，古杜能力取消' });
+      return cb({ ok: false, message: '周圍沒有可移動目標，古杜能力取消' });
     }
 
     state.step = 'selectTarget';
@@ -565,10 +647,6 @@ class GameManager {
     if (playerIndex !== room.turnIndex)
       return cb({ ok: false, message: '尚未輪到你' });
 
-    const player = room.players[playerIndex];
-    if (player.roleIndex !== 4)
-      return cb({ ok: false, message: '只有古杜可以使用此能力' });
-
     const state = room.gudoState;
     if (!state || state.playerIndex !== playerIndex)
       return cb({ ok: false, message: '尚未啟動古杜能力' });
@@ -581,9 +659,10 @@ class GameManager {
     const v = room.board?.[y]?.[x];
     if (v === undefined) return cb({ ok: false, message: '座標錯誤' });
 
-    if (v <= 0) return cb({ ok: false, message: '只能選其他玩家的正常棋' });
-    if (v === playerIndex + 1)
-      return cb({ ok: false, message: '不能選自己的棋' });
+    if (v <= 0)
+      return cb({ ok: false, message: '只能選正常棋（不能選空格/灰叉）' });
+    if (v === state.selfToken)
+      return cb({ ok: false, message: '不能選自己此角色的棋' });
 
     const offsets = [-1, 0, 1];
     const emptyAround = [];
@@ -597,7 +676,9 @@ class GameManager {
           ny >= 0 &&
           ny < room.board.length
         ) {
-          if (room.board[ny][nx] === 0) emptyAround.push({ x: nx, y: ny });
+          if (room.board[ny][nx] === 0) {
+            emptyAround.push({ x: nx, y: ny });
+          }
         }
       }
     }
@@ -628,8 +709,6 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 4)
-      return cb({ ok: false, message: '只有古杜可以使用此能力' });
 
     const state = room.gudoState;
     if (!state || state.playerIndex !== playerIndex || !state.target)
@@ -645,7 +724,6 @@ class GameManager {
     if (!allowed) return cb({ ok: false, message: '只能移動到目標周圍的空格' });
 
     const targetPiece = state.target;
-
     const tv = room.board?.[targetPiece.y]?.[targetPiece.x];
     if (tv === undefined || tv <= 0) {
       room.gudoState = null;
@@ -653,9 +731,8 @@ class GameManager {
       return cb({ ok: false, message: '目標棋已不存在，古杜能力取消' });
     }
 
-    const tmp = tv;
     room.board[targetPiece.y][targetPiece.x] = 0;
-    room.board[y][x] = tmp;
+    room.board[y][x] = tv;
 
     player.usedGudoThisTurn = true;
     room.gudoState = null;
@@ -669,30 +746,32 @@ class GameManager {
         board: room.board,
         win: { winnerIndex: winner, winnerId: winPlayer.id },
         turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
         roundCount: room.roundCount,
+        status: room.status,
       });
-      setTimeout(() => this.restartGame(room.id), 2000);
+      setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
       return cb({ ok: true, win: true });
     }
 
     this.io.to(roomId).emit('placed', {
       board: room.board,
       turnIndex: room.turnIndex,
+      turnSlot: room.turnSlot || 1,
       roundCount: room.roundCount,
       status: room.status,
     });
     cb({ ok: true });
   }
 
-  // === 吉斯（Jeice）能力：粉碎球・擊退 ===
   emitJeiceCancelled(socket, roomId, message) {
     this.io.to(socket.id).emit('jeiceCancelled', { message });
-
     const room = this.rooms[roomId];
     if (room) {
       this.io.to(roomId).emit('placed', {
         board: room.board,
         turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
         roundCount: room.roundCount,
         status: room.status,
       });
@@ -712,7 +791,10 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 5)
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+
+    if (roleIndex !== 5)
       return cb({ ok: false, message: '只有吉斯可以使用此能力' });
     if (player.usedJeiceThisTurn)
       return cb({ ok: false, message: '本回合已使用過吉斯能力' });
@@ -722,6 +804,8 @@ class GameManager {
 
     room.jeiceState = {
       playerIndex,
+      slot,
+      selfToken: this._tokenOf(playerIndex, slot),
       step: 'place',
       placed: null,
       targets: [],
@@ -743,10 +827,8 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 5)
-      return cb({ ok: false, message: '只有吉斯可以使用此能力' });
-
     const state = room.jeiceState;
+
     if (!state || state.playerIndex !== playerIndex || state.step !== 'place') {
       room.jeiceState = null;
       this.emitJeiceCancelled(socket, roomId, '吉斯能力已取消');
@@ -755,15 +837,13 @@ class GameManager {
 
     const board = room.board;
 
-    // 只能落子在空格（不能覆蓋，不能叉叉）
     if (board?.[y]?.[x] === undefined)
       return cb({ ok: false, message: '座標錯誤' });
     if (board[y][x] !== 0) return cb({ ok: false, message: '只能落子在空格' });
 
     try {
-      // 正常落子
-      this.roleAbilities[5].place(board, x, y, playerIndex, 0);
-      player.placedThisTurn = 1; // 吉斯回合只有 1 步，但先不結束回合，等待是否擊退
+      this.roleAbilities[5].place(board, x, y, state.selfToken);
+      player.placedThisTurn = 1;
       player.usedJeiceThisTurn = true;
     } catch (err) {
       room.jeiceState = null;
@@ -771,7 +851,7 @@ class GameManager {
       return cb({ ok: false, message: err.message });
     }
 
-    const selfValue = playerIndex + 1;
+    const selfToken = state.selfToken;
     const targets = [];
 
     for (let dy = -1; dy <= 1; dy++) {
@@ -780,8 +860,7 @@ class GameManager {
         const tx = x + dx;
         const ty = y + dy;
         const v = board?.[ty]?.[tx];
-        // 敵方一般棋：v > 0 且不是自己
-        if (typeof v === 'number' && v > 0 && v !== selfValue) {
+        if (typeof v === 'number' && v > 0 && v !== selfToken) {
           targets.push({ x: tx, y: ty });
         }
       }
@@ -791,12 +870,13 @@ class GameManager {
     state.placed = { x, y };
     state.targets = targets;
 
-    // 若沒有可擊退目標：直接視為正常落子，結束回合並廣播
     if (!targets.length) {
       room.jeiceState = null;
 
-      const targetN = player.roleIndex === 1 ? 6 : room.targetN;
-      const win = this.checkWinner(board, x, y, selfValue, targetN);
+      const roleIndex = this._getActiveRoleIndex(room, player, state.slot);
+      const targetN = roleIndex === 1 ? 6 : room.targetN;
+      const win = this.checkWinner(board, x, y, selfToken, targetN);
+
       if (win) {
         player.wins = (player.wins || 0) + 1;
         room.status = 'ENDED';
@@ -804,18 +884,20 @@ class GameManager {
           board,
           win: { winnerIndex: playerIndex, winnerId: player.id },
           turnIndex: room.turnIndex,
+          turnSlot: room.turnSlot || 1,
           roundCount: room.roundCount,
+          status: room.status,
         });
-        setTimeout(() => this.restartGame(roomId), 2000);
+        setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
         return cb({ ok: true, targets: [], win: true });
       }
 
-      // 結束回合
       this._advanceTurn(room);
 
       this.io.to(roomId).emit('placed', {
         board,
         turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
         roundCount: room.roundCount,
         status: room.status,
       });
@@ -823,7 +905,6 @@ class GameManager {
       return cb({ ok: true, targets: [] });
     }
 
-    // 有目標：回傳 targets，等待選擇；不廣播 placed，避免前端 placed handler 把 jeice UI 清掉
     cb({ ok: true, targets });
   }
 
@@ -839,11 +920,8 @@ class GameManager {
     if (playerIndex !== room.turnIndex)
       return cb({ ok: false, message: '尚未輪到你' });
 
-    const player = room.players[playerIndex];
-    if (player.roleIndex !== 5)
-      return cb({ ok: false, message: '只有吉斯可以使用此能力' });
-
     const state = room.jeiceState;
+
     if (
       !state ||
       state.playerIndex !== playerIndex ||
@@ -859,7 +937,6 @@ class GameManager {
       Array.isArray(state.targets) &&
       state.targets.some((p) => p.x === x && p.y === y);
     if (!isValid) {
-      // 點錯：視為取消擊退，但落子仍有效 -> 走 cancel 的邏輯
       return this.jeiceCancel(socket, { roomId }, cb);
     }
 
@@ -873,19 +950,16 @@ class GameManager {
       return cb({ ok: false, message: '座標錯誤' });
     }
 
-    // 不能擊退灰叉（tv < 0）/ 空格
     if (tv <= 0) {
       return this.jeiceCancel(socket, { roomId }, cb);
     }
 
-    // 方向：從新落子(from) -> 目標(target)
     const dx = Math.sign(x - from.x);
     const dy = Math.sign(y - from.y);
     if (dx === 0 && dy === 0) {
       return this.jeiceCancel(socket, { roomId }, cb);
     }
 
-    // 往遠離方向推：同 dx/dy 往外
     const oneX = x + dx;
     const oneY = y + dy;
     const twoX = x + dx * 2;
@@ -896,27 +970,20 @@ class GameManager {
 
     let pushedTo = null;
 
-    // 優先 2 格
-    if (inBoard(twoX, twoY) && board[twoY][twoX] === 0) {
-      // 注意：若中間一格不是空，也仍允許「飛躍」嗎？規格：
-      // "目標後面那格必須是空格，才能被推過去" => 2 格推表示落點(two)要空格
-      // 但同時也寫："如果後方只有一格空格 也能擊退到該格"，代表 one 空也可
-      // 這裡採：two 空就推 two；不要求 one 必須空（等於直接擊退 2 格）。
+    if (inBoard(oneX, oneY) && board[oneY][oneX] === 0) {
+      const can2 = inBoard(twoX, twoY) && board[twoY][twoX] === 0;
+      const nx = can2 ? twoX : oneX;
+      const ny = can2 ? twoY : oneY;
+
       board[y][x] = 0;
-      board[twoY][twoX] = tv;
-      pushedTo = { x: twoX, y: twoY };
-    } else if (inBoard(oneX, oneY) && board[oneY][oneX] === 0) {
-      board[y][x] = 0;
-      board[oneY][oneX] = tv;
-      pushedTo = { x: oneX, y: oneY };
+      board[ny][nx] = tv;
+      pushedTo = { x: nx, y: ny };
     } else {
-      // 擊退失敗：落子仍有效
       pushedTo = null;
     }
 
     room.jeiceState = null;
 
-    // 擊退後檢查勝利（任何人都可能因為被推而連線）
     const winner = this.checkBoardForAnyWinner(room);
     if (winner !== null) {
       const winPlayer = room.players[winner];
@@ -926,7 +993,9 @@ class GameManager {
         board: room.board,
         win: { winnerIndex: winner, winnerId: winPlayer.id },
         turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
         roundCount: room.roundCount,
+        status: room.status,
         effect: {
           type: 'jeice',
           from,
@@ -934,17 +1003,17 @@ class GameManager {
           to: pushedTo,
         },
       });
-      setTimeout(() => this.restartGame(room.id), 2000);
+      setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
       cb({ ok: true, win: true });
       return;
     }
 
-    // 結束回合
     this._advanceTurn(room);
 
     this.io.to(roomId).emit('placed', {
       board: room.board,
       turnIndex: room.turnIndex,
+      turnSlot: room.turnSlot || 1,
       roundCount: room.roundCount,
       status: room.status,
       effect: {
@@ -971,39 +1040,63 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
-    if (player.roleIndex !== 5)
-      return cb({ ok: false, message: '只有吉斯可以取消此能力' });
 
     const state = room.jeiceState;
+    const hasPlaced = !!state?.placed || player.placedThisTurn > 0;
+
     if (!state || state.playerIndex !== playerIndex) {
       room.jeiceState = null;
-      this.emitJeiceCancelled(socket, roomId, '吉斯能力已取消');
-      cb({ ok: true });
-      return;
+      this.io
+        .to(socket.id)
+        .emit('jeiceCancelled', { message: '已取消吉斯流程' });
+
+      if (hasPlaced) {
+        this._advanceTurn(room);
+      }
+
+      this.io.to(roomId).emit('placed', {
+        board: room.board,
+        turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
+        roundCount: room.roundCount,
+        status: room.status,
+      });
+      return cb({ ok: true });
     }
 
-    // 若已落子（selectTarget 階段） => 視為放棄擊退，但落子仍有效，需要結束回合
-    const hasPlaced = state.step === 'selectTarget' && state.placed;
+    if (!state.placed) {
+      player.usedJeiceThisTurn = true;
+      room.jeiceState = null;
 
+      this.io
+        .to(socket.id)
+        .emit('jeiceCancelled', { message: '本回合不使用吉斯技能' });
+
+      this.io.to(roomId).emit('placed', {
+        board: room.board,
+        turnIndex: room.turnIndex,
+        turnSlot: room.turnSlot || 1,
+        roundCount: room.roundCount,
+        status: room.status,
+      });
+
+      return cb({ ok: true });
+    }
+
+    player.usedJeiceThisTurn = true;
     room.jeiceState = null;
 
-    if (!hasPlaced) {
-      this.emitJeiceCancelled(socket, roomId, '已取消吉斯能力');
-      cb({ ok: true });
-      return;
-    }
-
-    // 已落子：結束回合（不擊退）
     this._advanceTurn(room);
 
     this.io.to(roomId).emit('placed', {
       board: room.board,
       turnIndex: room.turnIndex,
+      turnSlot: room.turnSlot || 1,
       roundCount: room.roundCount,
       status: room.status,
     });
 
-    cb({ ok: true });
+    return cb({ ok: true });
   }
 
   checkBoardForAnyWinner(room) {
@@ -1012,9 +1105,10 @@ class GameManager {
       for (let x = 0; x < board[y].length; x++) {
         const v = board[y][x];
         if (v > 0) {
-          const ownerIndex = v - 1;
-          const owner = room.players[ownerIndex];
-          const n = owner?.roleIndex === 1 ? 6 : room.targetN; // ✅ 巴特 6 連線
+          const { ownerIndex, slot } = this._decodeToken(v);
+          const owner = room.players?.[ownerIndex];
+          const roleIndex = this._getActiveRoleIndex(room, owner, slot);
+          const n = roleIndex === 1 ? 6 : room.targetN;
           if (this.checkWinner(board, x, y, v, n)) return ownerIndex;
         }
       }
@@ -1022,8 +1116,8 @@ class GameManager {
     return null;
   }
 
-  checkWinner(board, x, y, player, targetN) {
-    if (board[y][x] !== player) return false;
+  checkWinner(board, x, y, token, targetN) {
+    if (board[y][x] !== token) return false;
 
     const dirs = [
       [1, 0],
@@ -1036,12 +1130,12 @@ class GameManager {
       let c = 1;
       for (let i = 1; i < targetN; i++) {
         const v = board[y + dy * i]?.[x + dx * i];
-        if (v === player) c++;
+        if (v === token) c++;
         else break;
       }
       for (let i = 1; i < targetN; i++) {
         const v = board[y - dy * i]?.[x - dx * i];
-        if (v === player) c++;
+        if (v === token) c++;
         else break;
       }
       if (c >= targetN) return true;
