@@ -18,11 +18,9 @@
         --shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
         --r: 18px;
       }
-
       * {
         box-sizing: border-box;
       }
-
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
           Arial, Helvetica, sans-serif;
@@ -206,7 +204,6 @@
         border-radius: 50%;
         background: currentColor;
       }
-      /* ===== 吉斯：倒過來的 V（粗箭頭感） ===== */
       .jeice {
         position: relative;
         width: 22px;
@@ -218,11 +215,11 @@
         position: absolute;
         top: 2px;
         left: 50%;
-        width: 6px; /* 粗度 */
-        height: 20px; /* 長度 */
+        width: 6px;
+        height: 20px;
         background: currentColor;
         border-radius: 6px;
-        transform-origin: 50% 0%; /* 在上方交會 => 倒V(∧) */
+        transform-origin: 50% 0%;
       }
       .jeice::before {
         transform: translateX(-50%) rotate(38deg);
@@ -271,6 +268,38 @@
       }
       .logan::after {
         transform: translate(-50%, -50%) rotate(-45deg);
+      }
+
+      /* ✅ 回合顯示：顏色點 + 角色icon */
+      .turnPill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+      }
+      .turnDot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        background: rgba(255, 255, 255, 0.35);
+      }
+      .turnIcon {
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: scale(0.85);
+        transform-origin: center;
+      }
+      .turnText {
+        color: rgba(255, 255, 255, 0.82);
+        font-weight: 900;
+      }
+      .turnSub {
+        color: rgba(255, 255, 255, 0.65);
+        font-weight: 700;
       }
 
       /* ===== 房間玩家列 ===== */
@@ -526,7 +555,6 @@
         gap: 8px;
         flex-wrap: wrap;
       }
-
       .miniChip {
         font-size: 12px;
         padding: 8px 10px;
@@ -575,7 +603,7 @@
         border: 1px solid rgba(255, 255, 255, 0.14);
       }
 
-      /* ===== 手機：滑動選卡（中心大、左右只露邊框、不擋中間、更順） ===== */
+      /* ===== 手機：滑動選卡 ===== */
       .carousel {
         position: relative;
         height: min(520px, 66vh);
@@ -799,6 +827,7 @@
       }
     </style>
   </head>
+
   <body>
     <div id="app"></div>
 
@@ -822,17 +851,17 @@
         {
           name: '基紐',
           shape: 'circle',
-          desc: '回合開始可交換：選自己的基紐棋，與同行/同列的任一敵方棋交換。',
+          desc: '回合開始可交換：選自己的基紐棋，與同行/同列的任一「非自己此角色」的正常棋交換（包含對手與自己另一角色）。',
         },
         {
           name: '巴特',
           shape: 'star',
-          desc: '每回合可下兩子；但勝利需要 6 連線。',
+          desc: '每回合可下兩子；但勝利需要 6 連線（同一玩家同一角色）。',
         },
         {
           name: '力庫姆',
           shape: 'square',
-          desc: '可覆蓋一般棋（不能覆蓋叉叉）。',
+          desc: '可覆蓋一般棋（不能覆蓋叉叉）。可覆蓋任何「非叉叉」棋（包含對手與自己另一角色）。',
         },
         {
           name: '羅根',
@@ -842,12 +871,12 @@
         {
           name: '古杜',
           shape: 'triangle',
-          desc: '回合開始可移動：選自己的古杜棋，選周圍一格的敵方棋，將其移到該棋周圍空格。',
+          desc: '回合開始可移動：選自己的古杜棋，選周圍一格的「非自己此角色」正常棋（包含對手與自己另一角色），將其移到該棋周圍空格。',
         },
         {
           name: '吉斯',
           shape: 'jeice',
-          desc: '粉碎球・擊退：發動後落子，若新落子相鄰(8方向)有敵方一般棋，可選 1 顆將其往遠離方向擊退（最多 2 格；需後方是空格；不能擊退灰叉）。',
+          desc: '粉碎球・擊退：發動後落子，若新落子相鄰(8方向)有「非自己此角色」正常棋，可選 1 顆將其往遠離方向擊退（最多 2 格；需後方是空格；不能擊退灰叉）。',
         },
       ];
 
@@ -889,16 +918,33 @@
         });
       }
 
+      function decodeToken(v) {
+        const ownerIndex = Math.floor((v - 1) / 2);
+        const slot = ((v - 1) % 2) + 1;
+        return { ownerIndex, slot };
+      }
+
+      function getPlayerRoleIndex(room, player, slot) {
+        if (!room || !player) return null;
+        if (room.mode === 'DUAL')
+          return slot === 2 ? player.roleIndex2 : player.roleIndex1;
+        return player.roleIndex;
+      }
+
       function App() {
         const [socket, setSocket] = React.useState(null);
-        const [view, setView] = React.useState('HOME'); // HOME | ROLE | GAME
+
+        // ENTRY｜ROOM｜ROLE｜GAME
+        const [view, setView] = React.useState('ENTRY');
 
         const [room, setRoom] = React.useState(null);
         const [board, setBoard] = React.useState([]);
         const [name, setName] = React.useState('');
 
         const [selectedColor, setSelectedColor] = React.useState(null);
-        const [selectedRole, setSelectedRole] = React.useState(null);
+        const [selectedRole1, setSelectedRole1] = React.useState(null);
+        const [selectedRole2, setSelectedRole2] = React.useState(null);
+        const [pickingSlot, setPickingSlot] = React.useState(1);
 
         const [highlightSources, setHighlightSources] = React.useState([]);
         const [highlightTargets, setHighlightTargets] = React.useState([]);
@@ -918,42 +964,141 @@
         const [jeiceMode, setJeiceMode] = React.useState(false);
         const [jeiceStep, setJeiceStep] = React.useState('idle'); // idle | place | selectTarget
 
-        const [turnInfo, setTurnInfo] = React.useState('');
-
+        const [turnMeta, setTurnMeta] = React.useState(null);
         const [copied, setCopied] = React.useState(false);
 
-        // ✅ Jeice FX
         const [fx, setFx] = React.useState(null);
         const fxTimerRef = React.useRef(null);
 
-        // ✅ 賽後保留 10 秒（保留終局棋盤）
-        const [postGame, setPostGame] = React.useState(null); // { winnerName, secondsLeft, finalBoard }
+        // ✅ 賽後固定終局棋盤 + 固定棋子外觀（playersSnap）
+        const [postGame, setPostGame] = React.useState(null);
+        const postGameRef = React.useRef(null);
         const postGameTimerRef = React.useRef(null);
+        const [postGameDismissed, setPostGameDismissed] = React.useState(false);
 
         const roomRef = React.useRef(null);
 
+        // ✅ Jeice auto-start guard
+        const jeiceAutoKeyRef = React.useRef(null);
+
+        // ✅ 12181700：socket 只連一次（避免賽後因 state 變化重連導致「玩家不存在」）
         React.useEffect(() => {
           const s = connectSocket();
           setSocket(s);
+
+          function updateTurnInfo(r) {
+            if (!r || !r.players || r.status !== 'PLAYING') {
+              setTurnMeta(null);
+              return;
+            }
+            const turnPlayer = r.players[r.turnIndex];
+            const slot = r.mode === 'DUAL' ? r.turnSlot || 1 : 1;
+            const roleIdx = getPlayerRoleIndex(r, turnPlayer, slot);
+            const roleName =
+              typeof roleIdx === 'number' ? ROLES[roleIdx]?.name : '未選角';
+            const shape =
+              typeof roleIdx === 'number' ? ROLES[roleIdx]?.shape : 'circle';
+            const color =
+              typeof turnPlayer?.colorIndex === 'number'
+                ? COLORS[turnPlayer.colorIndex]
+                : 'rgba(255,255,255,0.45)';
+            setTurnMeta({
+              round: r.roundCount || 1,
+              playerName: turnPlayer?.name || 'N/A',
+              slot,
+              roleName,
+              shape,
+              color,
+            });
+          }
+
+          function tryReapplyMyPicks(r) {
+            // ✅ 讓玩家在 ENDED 先選下一局，restartGame 清空後自動回填
+            if (!r || !r.id || !s?.id) return;
+            const me = r.players?.find((p) => p.id === s.id);
+            if (!me) return;
+
+            // color
+            if (selectedColor !== null && me.colorIndex === null) {
+              s.emit(
+                'pickColor',
+                { roomId: r.id, colorIndex: selectedColor },
+                () => {}
+              );
+            }
+
+            if (r.mode === 'DUAL') {
+              if (typeof selectedRole1 === 'number' && me.roleIndex1 === null) {
+                s.emit(
+                  'pickRole',
+                  { roomId: r.id, roleIndex: selectedRole1, slot: 1 },
+                  () => {}
+                );
+              }
+              if (typeof selectedRole2 === 'number' && me.roleIndex2 === null) {
+                s.emit(
+                  'pickRole',
+                  { roomId: r.id, roleIndex: selectedRole2, slot: 2 },
+                  () => {}
+                );
+              }
+            } else {
+              if (typeof selectedRole1 === 'number' && me.roleIndex === null) {
+                s.emit(
+                  'pickRole',
+                  { roomId: r.id, roleIndex: selectedRole1 },
+                  () => {}
+                );
+              }
+            }
+          }
 
           s.on('roomUpdated', (r) => {
             roomRef.current = r;
             setRoom(r);
 
-            // 賽後 10 秒期間：不要被 roomUpdated 拉回大廳，也不要覆蓋棋盤
-            if (!postGame) {
+            // ✅ 同步自己：只在 server 有值時覆蓋本地（server null 不要把你剛選的清掉）
+            try {
+              const me2 = r?.players?.find((p) => p.id === s.id);
+              if (me2) {
+                if (typeof me2.colorIndex === 'number')
+                  setSelectedColor(me2.colorIndex);
+                if (r?.mode === 'DUAL') {
+                  if (typeof me2.roleIndex1 === 'number')
+                    setSelectedRole1(me2.roleIndex1);
+                  if (typeof me2.roleIndex2 === 'number')
+                    setSelectedRole2(me2.roleIndex2);
+                } else {
+                  if (typeof me2.roleIndex === 'number')
+                    setSelectedRole1(me2.roleIndex);
+                }
+              }
+            } catch (e) {}
+
+            // ✅ postGame 期間：不要用 room.board 覆蓋終局棋盤
+            if (!postGameRef.current) {
               setBoard(r.board || []);
+            }
+
+            // ✅ 只要在房間內：狀態變化要能切畫面（但 postGame 正在看終局棋盤時不強迫切回）
+            if (!postGameRef.current) {
               if (r?.status === 'PLAYING') setView('GAME');
-              else if (r?.status === 'LOBBY') setView('HOME');
+              else setView('ROOM');
+            } else {
+              // 如果你已經按返回房間（dismissed），那就保持 ROOM，不要被別人更新拉回 GAME
+              // 若你還在 GAME 看終局，維持 GAME 直到倒數結束
             }
 
             updateTurnInfo(r);
+
+            // ✅ 自動回填（restartGame 後 server 清空，這裡會補回你剛剛先選的）
+            tryReapplyMyPicks(r);
           });
 
           s.on('placed', (payload) => {
-            // 賽後 10 秒期間：保持終局棋盤
-            if (!postGame && payload.board) setBoard(payload.board);
+            if (!postGameRef.current && payload.board) setBoard(payload.board);
 
+            // 更新 roomRef
             if (roomRef.current) {
               roomRef.current = {
                 ...roomRef.current,
@@ -962,6 +1107,10 @@
                   typeof payload.turnIndex === 'number'
                     ? payload.turnIndex
                     : roomRef.current.turnIndex,
+                turnSlot:
+                  typeof payload.turnSlot === 'number'
+                    ? payload.turnSlot
+                    : roomRef.current.turnSlot,
                 roundCount:
                   typeof payload.roundCount === 'number'
                     ? payload.roundCount
@@ -969,7 +1118,6 @@
                 status: payload.status || roomRef.current.status,
               };
             }
-
             setRoom((prev) => {
               const base = prev || roomRef.current;
               if (!base) return base;
@@ -980,6 +1128,10 @@
                   typeof payload.turnIndex === 'number'
                     ? payload.turnIndex
                     : base.turnIndex,
+                turnSlot:
+                  typeof payload.turnSlot === 'number'
+                    ? payload.turnSlot
+                    : base.turnSlot,
                 roundCount:
                   typeof payload.roundCount === 'number'
                     ? payload.roundCount
@@ -988,7 +1140,7 @@
               };
             });
 
-            // ✅ Jeice FX（由 server 傳 effect）
+            // Jeice FX
             if (payload?.effect?.type === 'jeice') {
               if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
               setFx(payload.effect);
@@ -998,15 +1150,28 @@
               }, 900);
             }
 
+            // win => start postGame
             if (payload.win) {
               const r = roomRef.current;
               const winner = r?.players?.[payload.win.winnerIndex];
               const winnerName = winner ? winner.name : payload.win.winnerId;
 
               const finalBoard = deepCopyBoard(payload.board || board);
-              startPostGame(winnerName, finalBoard);
+
+              const playersSnap = (r?.players || []).map((p) => ({
+                id: p.id,
+                name: p.name,
+                colorIndex: p.colorIndex,
+                roleIndex: p.roleIndex,
+                roleIndex1: p.roleIndex1,
+                roleIndex2: p.roleIndex2,
+              }));
+              const modeSnap = r?.mode;
+
+              startPostGame(winnerName, finalBoard, playersSnap, modeSnap);
             }
 
+            // 清 UI
             setHighlightSources([]);
             setHighlightTargets([]);
             setHighlightGudo([]);
@@ -1021,7 +1186,31 @@
             setJeiceMode(false);
             setJeiceStep('idle');
 
-            updateTurnInfo(roomRef.current);
+            // update turn
+            const r2 = roomRef.current;
+            if (r2 && r2.status === 'PLAYING') {
+              const turnPlayer = r2.players?.[r2.turnIndex];
+              const slot = r2.mode === 'DUAL' ? r2.turnSlot || 1 : 1;
+              const roleIdx = getPlayerRoleIndex(r2, turnPlayer, slot);
+              const roleName =
+                typeof roleIdx === 'number' ? ROLES[roleIdx]?.name : '未選角';
+              const shape =
+                typeof roleIdx === 'number' ? ROLES[roleIdx]?.shape : 'circle';
+              const color =
+                typeof turnPlayer?.colorIndex === 'number'
+                  ? COLORS[turnPlayer.colorIndex]
+                  : 'rgba(255,255,255,0.45)';
+              setTurnMeta({
+                round: r2.roundCount || 1,
+                playerName: turnPlayer?.name || 'N/A',
+                slot,
+                roleName,
+                shape,
+                color,
+              });
+            } else {
+              setTurnMeta(null);
+            }
           });
 
           s.on('gudoCancelled', () => {
@@ -1052,7 +1241,7 @@
               s.disconnect();
             } catch (e) {}
           };
-        }, [postGame]);
+        }, []); // ✅ 只跑一次
 
         React.useEffect(() => {
           return () => {
@@ -1062,41 +1251,48 @@
           };
         }, []);
 
-        function updateTurnInfo(r) {
-          if (!r || !r.players || r.status !== 'PLAYING') {
-            setTurnInfo('');
-            return;
-          }
-          const turnPlayer = r.players[r.turnIndex];
-          setTurnInfo(
-            `回合：${r.roundCount || 1}｜輪到：${turnPlayer?.name || 'N/A'}`
-          );
-        }
-
-        function startPostGame(winnerName, finalBoard) {
+        function startPostGame(winnerName, finalBoard, playersSnap, modeSnap) {
           if (postGameTimerRef.current) clearInterval(postGameTimerRef.current);
 
-          setPostGame({ winnerName, secondsLeft: 10, finalBoard });
+          const pg = {
+            winnerName,
+            secondsLeft: 10,
+            finalBoard,
+            playersSnap: Array.isArray(playersSnap) ? playersSnap : null,
+            modeSnap: modeSnap || null,
+          };
+
+          postGameRef.current = pg;
+          setPostGame(pg);
+          setPostGameDismissed(false);
 
           let left = 10;
           postGameTimerRef.current = setInterval(() => {
             left -= 1;
-            setPostGame((pg) => (pg ? { ...pg, secondsLeft: left } : pg));
+            postGameRef.current = postGameRef.current
+              ? { ...postGameRef.current, secondsLeft: left }
+              : null;
+            setPostGame((old) => (old ? { ...old, secondsLeft: left } : old));
             if (left <= 0) {
               clearInterval(postGameTimerRef.current);
               postGameTimerRef.current = null;
-              backToRoom();
+              finishPostGameToRoom();
             }
           }, 1000);
         }
 
-        function backToRoom() {
-          if (postGameTimerRef.current) {
-            clearInterval(postGameTimerRef.current);
-            postGameTimerRef.current = null;
-          }
+        function finishPostGameToRoom() {
+          // 結束賽後：清掉終局固定畫面狀態，回 ROOM（Lobby）
+          postGameRef.current = null;
           setPostGame(null);
-          setView('HOME');
+          setPostGameDismissed(false);
+          if (roomRef.current) setView('ROOM');
+        }
+
+        function backToRoomEarly() {
+          // ✅ 12181700：賽後可先回房間選下一局，不要清 postGame（其他人仍可看終局）
+          setPostGameDismissed(true);
+          setView('ROOM');
         }
 
         function onCopyRoomId() {
@@ -1108,67 +1304,117 @@
           });
         }
 
-        function createRoom() {
+        function createRoom(mode) {
+          if (!socket) return;
           socket.emit(
             'createRoom',
-            { maxPlayers: 4, name: name.trim() },
+            { maxPlayers: 4, name: name.trim(), mode },
             (res) => {
               if (res.ok) {
                 setRoom(res.room);
-                setView('HOME');
-              } else {
-                alert(res.message || '建立失敗');
-              }
+                setView('ROOM');
+              } else alert(res.message || '建立失敗');
             }
           );
         }
 
         function joinRoom() {
+          if (!socket) return;
           const id = prompt('輸入房間ID');
           if (!id) return;
           socket.emit('joinRoom', { roomId: id, name: name.trim() }, (res) => {
             if (res.ok) {
               setRoom(res.room);
-              setView('HOME');
+              setView('ROOM');
             } else alert(res.message || '加入失敗');
           });
         }
 
+        function leaveRoom() {
+          if (!socket) return;
+          const rid = roomRef.current?.id || room?.id;
+          if (!rid) {
+            setRoom(null);
+            setBoard([]);
+            setView('ENTRY');
+            return;
+          }
+          socket.emit('leaveRoom', { roomId: rid }, (res) => {
+            if (!res?.ok) {
+              alert(res?.message || '退出房間失敗');
+              return;
+            }
+            setRoom(null);
+            setBoard([]);
+            setSelectedColor(null);
+            setSelectedRole1(null);
+            setSelectedRole2(null);
+            setView('ENTRY');
+            // 清 postGame
+            postGameRef.current = null;
+            setPostGame(null);
+            setPostGameDismissed(false);
+          });
+        }
+
         function pickColor(i) {
-          if (!room) return;
+          if (!room || !socket) return;
           setSelectedColor(i);
           socket.emit(
             'pickColor',
             { roomId: room.id, colorIndex: i },
-            (res) => {
-              if (res.ok) setRoom(res.room);
-            }
+            () => {}
           );
         }
 
-        function openRoleSelect() {
+        function openRoleSelect(slot) {
           if (!room) return;
+          setPickingSlot(slot === 2 ? 2 : 1);
           setView('ROLE');
         }
 
         function confirmRole(roleIndex) {
-          if (!room) return;
-          setSelectedRole(roleIndex);
-          socket.emit('pickRole', { roomId: room.id, roleIndex }, (res) => {
-            if (res.ok) setRoom(res.room);
-          });
-          setView('HOME');
+          if (!room || !socket) return;
+
+          if (room?.mode === 'DUAL') {
+            const other = pickingSlot === 1 ? selectedRole2 : selectedRole1;
+            if (typeof other === 'number' && other === roleIndex) {
+              alert('同一玩家的 角色1 / 角色2 不能重複');
+              return;
+            }
+            if (pickingSlot === 1) setSelectedRole1(roleIndex);
+            else setSelectedRole2(roleIndex);
+
+            socket.emit(
+              'pickRole',
+              { roomId: room.id, roleIndex, slot: pickingSlot },
+              () => {}
+            );
+          } else {
+            setSelectedRole1(roleIndex);
+            setSelectedRole2(null);
+            socket.emit('pickRole', { roomId: room.id, roleIndex }, () => {});
+          }
+
+          setView('ROOM');
         }
 
         function readyUp() {
-          if (selectedColor === null || selectedRole === null)
-            return alert('請先選擇顏色與角色');
+          if (!socket || !room) return;
+          if (selectedColor === null) return alert('請先選擇顏色');
+          if (room?.mode === 'DUAL') {
+            if (selectedRole1 === null || selectedRole2 === null)
+              return alert('DUAL 模式請先選擇 角色1 與 角色2');
+          } else {
+            if (selectedRole1 === null) return alert('請先選擇角色');
+          }
           socket.emit('readyUp', { roomId: room.id }, (res) => {
-            if (!res.ok && res.message) alert(res.message);
+            if (!res?.ok && res?.message) alert(res.message);
           });
         }
 
         function startGame() {
+          if (!socket || !room) return;
           socket.emit('startGame', { roomId: room.id });
         }
 
@@ -1191,27 +1437,96 @@
           setJeiceStep('idle');
         }
 
-        function place(x, y) {
-          if (!room || room.status !== 'PLAYING') return;
+        // ✅ 吉斯：每回合預設自動啟動
+        React.useEffect(() => {
+          if (!socket || !room || room.status !== 'PLAYING') return;
+          const me = room.players?.find((p) => p.id === socket.id);
+          const isMyTurn = room.players?.[room.turnIndex]?.id === socket.id;
+          if (!isMyTurn || !me) return;
 
-          // ===== Jeice（發動後：先落子，再選擊退目標） =====
+          const slot = room.mode === 'DUAL' ? room.turnSlot || 1 : 1;
+          const myRoleIndex = getPlayerRoleIndex(room, me, slot);
+          if (myRoleIndex !== 5) return;
+
+          if (me.usedJeiceThisTurn) {
+            setHighlightJeiceTargets([]);
+            setHighlightJeiceSource(null);
+            setJeiceMode(false);
+            setJeiceStep('idle');
+            return;
+          }
+
+          const turnKey = `${room.id}:${room.roundCount || 1}:${
+            room.turnIndex
+          }:${room.turnSlot || 1}`;
+          if (jeiceAutoKeyRef.current === turnKey) return;
+          jeiceAutoKeyRef.current = turnKey;
+
+          socket.emit('jeiceAbilityStart', { roomId: room.id }, (res) => {
+            if (res?.ok) {
+              setJeiceMode(true);
+              setJeiceStep('place');
+              setHighlightJeiceTargets([]);
+              setHighlightJeiceSource(null);
+            } else {
+              jeiceAutoKeyRef.current = null;
+            }
+          });
+        }, [
+          socket,
+          room?.id,
+          room?.status,
+          room?.turnIndex,
+          room?.turnSlot,
+          room?.roundCount,
+        ]);
+
+        function place(x, y) {
+          if (!room || !socket || room.status !== 'PLAYING') return;
+
+          // Jeice flow
           if (jeiceMode) {
             if (jeiceStep === 'place') {
               socket.emit('jeicePlace', { roomId: room.id, x, y }, (res) => {
                 if (res?.ok) {
                   setHighlightJeiceSource({ x, y });
+
+                  // optimistic
+                  try {
+                    const r0 = roomRef.current || room;
+                    const myIdx = (r0?.players || []).findIndex(
+                      (p) => p.id === socket.id
+                    );
+                    if (myIdx >= 0) {
+                      const slot = r0?.mode === 'DUAL' ? r0.turnSlot || 1 : 1;
+                      const token = myIdx * 2 + slot;
+                      const b2 = deepCopyBoard(r0?.board || board);
+                      if (b2?.[y]?.[x] === 0) b2[y][x] = token;
+                      if (roomRef.current) roomRef.current.board = b2;
+                      setBoard(b2);
+                      setRoom((prev) => (prev ? { ...prev, board: b2 } : prev));
+                    }
+                  } catch (e) {}
+
                   const targets = Array.isArray(res.targets) ? res.targets : [];
                   if (targets.length) {
                     setHighlightJeiceTargets(targets);
                     setJeiceStep('selectTarget');
                   } else {
-                    // 沒有可擊退目標：技能流程結束（落子已生效）
+                    setHighlightJeiceTargets([]);
+                    setHighlightJeiceSource(null);
                     setJeiceMode(false);
                     setJeiceStep('idle');
                   }
                 } else {
                   if (res?.message) alert(res.message);
-                  cancelJeice();
+                  const msg = String(res?.message || '');
+                  if (
+                    msg.includes('房間不存在') ||
+                    msg.includes('遊戲未開始') ||
+                    msg.includes('尚未輪到你')
+                  )
+                    cancelJeice();
                 }
               });
               return;
@@ -1221,19 +1536,15 @@
               const inTargets = highlightJeiceTargets.some(
                 (p) => p.x === x && p.y === y
               );
-
-              // 點到非目標：視為放棄擊退（落子仍有效）
               if (!inTargets) {
-                cancelJeice(); // ✅ 通知 server 結束吉斯流程/結束回合，避免卡死
+                cancelJeice();
                 return;
               }
-
               socket.emit(
                 'jeiceSelectTarget',
                 { roomId: room.id, x, y },
                 (res) => {
                   if (!res?.ok && res?.message) alert(res.message);
-                  // 最終盤面 / 特效會由 server 透過 placed 廣播
                   setHighlightJeiceTargets([]);
                   setHighlightJeiceSource(null);
                   setJeiceMode(false);
@@ -1244,7 +1555,7 @@
             }
           }
 
-          // ===== 基紐 =====
+          // Ginyu flow
           if (ginyuMode) {
             const inSources = highlightSources.some(
               (p) => p.x === x && p.y === y
@@ -1296,10 +1607,9 @@
             return;
           }
 
-          // ===== 古杜 =====
+          // Gudo flow
           if (gudoMode) {
             const localRoom = roomRef.current || room;
-
             if (
               !localRoom.gudoClientStep ||
               localRoom.gudoClientStep === 'idle'
@@ -1330,7 +1640,6 @@
                 { roomId: localRoom.id, x, y },
                 (res) => {
                   if (res.ok) {
-                    // ✅ UI 修正：進入第二段（選移動位置）時，把第一段「實線」提示拿掉，避免重疊
                     setHighlightGudo([]);
                     setHighlightGudoTargets(res.emptyAround || []);
                     localRoom.gudoClientStep = 'selectMove';
@@ -1359,13 +1668,14 @@
             }
           }
 
-          // ===== 一般落子 =====
+          // Normal place
           socket.emit('place', { roomId: room.id, x, y }, (res) => {
             if (!res.ok && res.message) alert(res.message);
           });
         }
 
         function activateGinyu() {
+          if (!socket || !room) return;
           socket.emit('ginyuAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGinyuMode(true);
@@ -1375,6 +1685,7 @@
         }
 
         function activateGudo() {
+          if (!socket || !room) return;
           socket.emit('gudoAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGudoMode(true);
@@ -1387,15 +1698,14 @@
         }
 
         function activateJeice() {
+          if (!socket || !room) return;
           socket.emit('jeiceAbilityStart', { roomId: room.id }, (res) => {
             if (res?.ok) {
               setJeiceMode(true);
               setJeiceStep('place');
               setHighlightJeiceTargets([]);
               setHighlightJeiceSource(null);
-            } else {
-              alert(res?.message || '無法發動吉斯能力');
-            }
+            } else alert(res?.message || '無法發動吉斯能力');
           });
         }
 
@@ -1406,8 +1716,14 @@
           room.turnIndex !== undefined &&
           room.players[room.turnIndex]?.id === me.id;
 
+        const activeSlot = room?.mode === 'DUAL' ? room.turnSlot || 1 : 1;
+        const myActiveRoleIndex = isMyTurn
+          ? getPlayerRoleIndex(room, me, activeSlot)
+          : null;
+
         const canStart =
           room &&
+          room.status === 'LOBBY' &&
           room.hostId === socket?.id &&
           room.players &&
           room.players.length > 0 &&
@@ -1416,6 +1732,15 @@
         const boardToRender = postGame?.finalBoard
           ? postGame.finalBoard
           : board;
+
+        // ✅ 終局棋盤：固定棋子外觀（避免別人改角色影響你看到的終局）
+        const playersForBoard =
+          postGame?.playersSnap && Array.isArray(postGame.playersSnap)
+            ? postGame.playersSnap
+            : room?.players || [];
+        const modeForBoard = postGame?.modeSnap || room?.mode;
+
+        const inRoom = !!room?.id;
 
         return e(
           'div',
@@ -1430,12 +1755,20 @@
               e(
                 'div',
                 { className: 'title' },
-                view === 'GAME' ? '基紐棋｜對局中' : '基紐棋｜Lobby'
+                inRoom
+                  ? view === 'GAME'
+                    ? `基紐棋｜對局中（${
+                        room?.mode === 'DUAL' ? 'DUAL' : 'SINGLE'
+                      }）`
+                    : `基紐棋｜房間（${
+                        room?.mode === 'DUAL' ? 'DUAL' : 'SINGLE'
+                      }）`
+                  : '基紐棋｜建立或加入房間'
               ),
               e(
                 'div',
                 { className: 'sub' },
-                room
+                inRoom
                   ? e(
                       React.Fragment,
                       null,
@@ -1448,6 +1781,15 @@
                           title: '一鍵複製房間編號',
                         },
                         copied ? '已複製' : '複製'
+                      ),
+                      e(
+                        'button',
+                        {
+                          className: 'tinyBtn',
+                          onClick: leaveRoom,
+                          title: '退出此房間（回到建立/加入畫面）',
+                        },
+                        '退出房間'
                       )
                     )
                   : '建立或加入房間開始遊玩'
@@ -1456,11 +1798,11 @@
             e('div', { className: 'pill' }, socket?.id ? `你已連線` : '連線中…')
           ),
 
-          view === 'HOME' &&
+          // ENTRY
+          view === 'ENTRY' &&
             e(
               'div',
-              { className: 'screen twoCols' },
-
+              { className: 'screen grid' },
               e(
                 'div',
                 { className: 'card panelPad grid' },
@@ -1472,11 +1814,22 @@
                 }),
                 e(
                   'div',
-                  { className: 'row' },
+                  { className: 'row', style: { flexWrap: 'wrap' } },
                   e(
                     'button',
-                    { onClick: createRoom, disabled: !name.trim() },
-                    '建立房間'
+                    {
+                      onClick: () => createRoom('SINGLE'),
+                      disabled: !name.trim(),
+                    },
+                    '建立房間：單人模式'
+                  ),
+                  e(
+                    'button',
+                    {
+                      onClick: () => createRoom('DUAL'),
+                      disabled: !name.trim(),
+                    },
+                    '建立房間：雙人模式'
                   ),
                   e(
                     'button',
@@ -1484,97 +1837,174 @@
                     '加入房間'
                   )
                 ),
+                e(
+                  'div',
+                  { className: 'hint' },
+                  '進房後將隱藏建立/加入按鈕（防呆），只保留房號複製與退出房間。'
+                )
+              )
+            ),
 
-                room &&
-                  room.status === 'LOBBY' &&
-                  e(
-                    React.Fragment,
-                    null,
-                    e(
-                      'div',
-                      { className: 'label', style: { marginTop: 8 } },
-                      '顏色'
-                    ),
-                    e(
-                      'div',
-                      { className: 'rowWrap' },
-                      COLORS.map((c, i) =>
-                        e('div', {
-                          key: i,
-                          className: 'choice',
-                          onClick: () => pickColor(i),
-                          style: {
-                            background: c,
-                            outline:
-                              selectedColor === i
-                                ? '2px solid rgba(255,255,255,0.9)'
-                                : 'none',
-                          },
-                        })
-                      )
-                    ),
-
-                    e(
-                      'div',
-                      { className: 'label', style: { marginTop: 10 } },
-                      '角色'
-                    ),
-                    e(
-                      'button',
-                      { onClick: openRoleSelect },
-                      selectedRole === null
-                        ? '選擇角色（全螢幕）'
-                        : `已選：${ROLES[selectedRole]?.name}（點我重選）`
-                    ),
-
-                    selectedRole !== null &&
-                      e(
-                        'div',
-                        { className: 'hint' },
-                        `技能：${ROLES[selectedRole]?.desc || ''}`
-                      ),
-
-                    e(
-                      'div',
-                      { className: 'row', style: { marginTop: 10 } },
-                      e('button', { onClick: readyUp }, '準備完成'),
-                      canStart &&
-                        e(
-                          'button',
-                          {
-                            onClick: startGame,
-                            style: {
-                              background:
-                                'linear-gradient(135deg, rgba(76,175,80,0.38), rgba(76,175,80,0.18))',
-                              border: '1px solid rgba(255,255,255,0.18)',
-                            },
-                          },
-                          'Start Game'
-                        )
-                    )
-                  )
-              ),
+          // ROOM
+          view === 'ROOM' &&
+            inRoom &&
+            e(
+              'div',
+              { className: 'screen twoCols' },
 
               e(
                 'div',
                 { className: 'card panelPad grid' },
                 e(
                   'div',
-                  { className: 'label' },
-                  room ? '玩家列表' : '尚未加入房間'
+                  { style: { fontWeight: 1000, marginBottom: 6 } },
+                  '房間（Lobby）'
                 ),
-                room &&
-                  room.players &&
+
+                // ✅ 12181700 核心：不管狀態是 LOBBY / ENDED / PLAYING，都允許你先選下一局
+                room?.status !== 'LOBBY'
+                  ? e(
+                      'div',
+                      { className: 'hint' },
+                      room?.status === 'ENDED'
+                        ? '賽後結算中（倒數後會自動回 Lobby 清空角色），你可以先選好顏色/角色，系統會在清空後自動幫你回填。'
+                        : '目前正在對局中，你也可以先調整下一局顏色/角色（不影響當局）。'
+                    )
+                  : null,
+
+                e('div', { className: 'label' }, '顏色'),
+                e(
+                  'div',
+                  { className: 'rowWrap' },
+                  COLORS.map((c, i) =>
+                    e('div', {
+                      key: i,
+                      className: 'choice',
+                      onClick: () => pickColor(i),
+                      style: {
+                        background: c,
+                        outline:
+                          selectedColor === i
+                            ? '2px solid rgba(255,255,255,0.9)'
+                            : 'none',
+                      },
+                    })
+                  )
+                ),
+
+                e(
+                  'div',
+                  { className: 'label', style: { marginTop: 10 } },
+                  room?.mode === 'DUAL' ? '角色（DUAL：角色1 / 角色2）' : '角色'
+                ),
+
+                room?.mode === 'DUAL'
+                  ? e(
+                      'div',
+                      { className: 'row', style: { flexWrap: 'wrap' } },
+                      e(
+                        'button',
+                        { onClick: () => openRoleSelect(1) },
+                        selectedRole1 === null
+                          ? '選擇角色1（全螢幕）'
+                          : `角色1：${ROLES[selectedRole1]?.name}（重選）`
+                      ),
+                      e(
+                        'button',
+                        { onClick: () => openRoleSelect(2) },
+                        selectedRole2 === null
+                          ? '選擇角色2（全螢幕）'
+                          : `角色2：${ROLES[selectedRole2]?.name}（重選）`
+                      )
+                    )
+                  : e(
+                      'button',
+                      { onClick: () => openRoleSelect(1) },
+                      selectedRole1 === null
+                        ? '選擇角色（全螢幕）'
+                        : `已選：${ROLES[selectedRole1]?.name}（點我重選）`
+                    ),
+
+                room?.mode === 'DUAL'
+                  ? e(
+                      React.Fragment,
+                      null,
+                      e(
+                        'div',
+                        { className: 'hint' },
+                        `角色1技能：${
+                          selectedRole1 !== null
+                            ? ROLES[selectedRole1]?.desc
+                            : '—'
+                        }`
+                      ),
+                      e(
+                        'div',
+                        { className: 'hint' },
+                        `角色2技能：${
+                          selectedRole2 !== null
+                            ? ROLES[selectedRole2]?.desc
+                            : '—'
+                        }`
+                      )
+                    )
+                  : selectedRole1 !== null &&
+                      e(
+                        'div',
+                        { className: 'hint' },
+                        `技能：${ROLES[selectedRole1]?.desc || ''}`
+                      ),
+
+                e(
+                  'div',
+                  { className: 'row', style: { marginTop: 10 } },
+                  e('button', { onClick: readyUp }, '準備完成'),
+                  canStart &&
+                    e(
+                      'button',
+                      {
+                        onClick: startGame,
+                        style: {
+                          background:
+                            'linear-gradient(135deg, rgba(76,175,80,0.38), rgba(76,175,80,0.18))',
+                          border: '1px solid rgba(255,255,255,0.18)',
+                        },
+                      },
+                      'Start Game'
+                    )
+                )
+              ),
+
+              e(
+                'div',
+                { className: 'card panelPad grid' },
+                e('div', { className: 'label' }, '玩家列表'),
+                room.players &&
                   room.players.map((p) => {
-                    const roleName =
-                      typeof p.roleIndex === 'number'
-                        ? ROLES[p.roleIndex]?.name
-                        : null;
-                    const roleText = roleName ? roleName : '選角中';
+                    let roleText = '選角中';
+                    if (room?.mode === 'DUAL') {
+                      const r1 =
+                        typeof p.roleIndex1 === 'number'
+                          ? ROLES[p.roleIndex1]?.name
+                          : null;
+                      const r2 =
+                        typeof p.roleIndex2 === 'number'
+                          ? ROLES[p.roleIndex2]?.name
+                          : null;
+                      roleText = `角色1：${r1 || '—'}｜角色2：${r2 || '—'}`;
+                    } else {
+                      const rn =
+                        typeof p.roleIndex === 'number'
+                          ? ROLES[p.roleIndex]?.name
+                          : null;
+                      roleText = rn ? rn : '選角中';
+                    }
+
                     const color =
                       typeof p.colorIndex === 'number'
                         ? COLORS[p.colorIndex]
                         : 'rgba(255,255,255,0.25)';
+
                     return e(
                       'div',
                       { key: p.id, className: 'playerLine' },
@@ -1606,6 +2036,7 @@
               )
             ),
 
+          // GAME
           view === 'GAME' &&
             e(
               'div',
@@ -1618,13 +2049,45 @@
                   { style: { fontWeight: 1000, marginBottom: 8 } },
                   '對局'
                 ),
-                turnInfo
+
+                turnMeta
                   ? e(
                       'div',
-                      { className: 'pill', style: { display: 'inline-block' } },
-                      turnInfo
+                      {
+                        className: 'pill turnPill',
+                        style: { display: 'inline-flex' },
+                      },
+                      e('div', {
+                        className: 'turnDot',
+                        style: { background: turnMeta.color },
+                      }),
+                      e(
+                        'div',
+                        { className: 'turnIcon' },
+                        e('div', {
+                          className: turnMeta.shape || 'circle',
+                          style: { color: turnMeta.color },
+                        })
+                      ),
+                      e(
+                        'div',
+                        null,
+                        e(
+                          'div',
+                          { className: 'turnText' },
+                          `輪到：${turnMeta.playerName}`
+                        ),
+                        e(
+                          'div',
+                          { className: 'turnSub' },
+                          `回合：${turnMeta.round}｜角色${
+                            room?.mode === 'DUAL' ? turnMeta.slot : 1
+                          }：${turnMeta.roleName}`
+                        )
+                      )
                     )
                   : null,
+
                 e(
                   'div',
                   {
@@ -1635,7 +2098,7 @@
                       flexWrap: 'wrap',
                     },
                   },
-                  isMyTurn && me?.roleIndex === 0
+                  isMyTurn && myActiveRoleIndex === 0
                     ? e(
                         'button',
                         {
@@ -1645,7 +2108,7 @@
                         '發動基紐能力'
                       )
                     : null,
-                  isMyTurn && me?.roleIndex === 4
+                  isMyTurn && myActiveRoleIndex === 4
                     ? e(
                         'button',
                         {
@@ -1655,7 +2118,7 @@
                         '發動古杜能力'
                       )
                     : null,
-                  isMyTurn && me?.roleIndex === 5
+                  isMyTurn && myActiveRoleIndex === 5
                     ? e(
                         'button',
                         {
@@ -1669,7 +2132,7 @@
                           : '發動吉斯能力'
                       )
                     : null,
-                  isMyTurn && me?.roleIndex === 5 && jeiceMode
+                  isMyTurn && myActiveRoleIndex === 5 && jeiceMode
                     ? e(
                         'button',
                         {
@@ -1683,15 +2146,18 @@
                       )
                     : null
                 ),
-                jeiceMode &&
-                  e(
-                    'div',
-                    { className: 'hint', style: { marginTop: 8 } },
-                    jeiceStep === 'place'
-                      ? '吉斯：請點空格落子（落子後若有相鄰敵方一般棋，可再點 1 顆擊退）'
-                      : '吉斯：點紅色虛線目標以擊退；點其他地方可放棄擊退（落子仍有效）'
-                  )
+
+                jeiceMode
+                  ? e(
+                      'div',
+                      { className: 'hint', style: { marginTop: 8 } },
+                      jeiceStep === 'place'
+                        ? '吉斯：請點空格落子（落子後若有相鄰「非自己此角色」正常棋，可再點 1 顆擊退）'
+                        : '吉斯：點紅色虛線目標以擊退；點其他地方可放棄擊退（落子仍有效）'
+                    )
+                  : null
               ),
+
               e(
                 'div',
                 { className: 'card boardWrap' },
@@ -1700,6 +2166,8 @@
                       board: boardToRender,
                       onPlace: place,
                       room,
+                      playersOverride: playersForBoard,
+                      modeOverride: modeForBoard,
                       highlightSources,
                       highlightTargets,
                       highlightGudo,
@@ -1713,51 +2181,70 @@
               )
             ),
 
+          // ROLE SCREEN
           view === 'ROLE' &&
             e(RoleSelectScreen, {
               room,
-              selectedRole,
-              onClose: () => setView('HOME'),
+              slot: pickingSlot,
+              selectedRole:
+                room?.mode === 'DUAL'
+                  ? pickingSlot === 1
+                    ? selectedRole1
+                    : selectedRole2
+                  : selectedRole1,
+              selectedOtherRole:
+                room?.mode === 'DUAL'
+                  ? pickingSlot === 1
+                    ? selectedRole2
+                    : selectedRole1
+                  : null,
+              onClose: () => setView('ROOM'),
               onConfirm: confirmRole,
             }),
 
-          // ✅ 賽後 10 秒：顯示勝利者 + 倒數 + 返回房間
-          postGame &&
-            e(
-              'div',
-              { className: 'postGame' },
-              e(
+          // PostGame Overlay：只有在 GAME 且未 dismissed 才顯示
+          postGame && view === 'GAME' && !postGameDismissed
+            ? e(
                 'div',
-                { className: 'box' },
+                { className: 'postGame' },
                 e(
                   'div',
-                  { className: 'title' },
-                  `🏆 勝利者：${postGame.winnerName}`
-                ),
-                e(
-                  'div',
-                  { className: 'sub' },
-                  `棋局將在 ${postGame.secondsLeft} 秒後返回房間（可先按下方按鈕）`
-                ),
-                e(
-                  'button',
-                  { className: 'btn', onClick: backToRoom },
-                  '返回房間'
+                  { className: 'box' },
+                  e(
+                    'div',
+                    { className: 'title' },
+                    `🏆 勝利者：${postGame.winnerName}`
+                  ),
+                  e(
+                    'div',
+                    { className: 'sub' },
+                    `棋局將在 ${postGame.secondsLeft} 秒後回到房間並重新選角（你也可以先返回房間選下一局）`
+                  ),
+                  e(
+                    'button',
+                    { className: 'btn', onClick: backToRoomEarly },
+                    '返回房間'
+                  )
                 )
               )
-            )
+            : null
         );
       }
 
-      function RoleSelectScreen({ room, selectedRole, onClose, onConfirm }) {
+      function RoleSelectScreen({
+        room,
+        slot,
+        selectedRole,
+        selectedOtherRole,
+        onClose,
+        onConfirm,
+      }) {
         const n = ROLES.length;
         const [current, setCurrent] = React.useState(
           typeof selectedRole === 'number' ? selectedRole : 0
         );
-
         const [lockedIndex, setLockedIndex] = React.useState(null);
 
-        const carouselRef = React.useRef(null);
         const [dragPx, setDragPx] = React.useState(0);
         const dragPxRef = React.useRef(0);
         const rafRef = React.useRef(0);
@@ -1769,7 +2256,6 @@
           v: 0,
           pointerId: null,
         });
-
         const snapPxRef = React.useRef(260);
 
         React.useEffect(() => {
@@ -1857,15 +2343,33 @@
         }
 
         const others = (room?.players || []).map((p) => {
+          if (room?.mode === 'DUAL') {
+            const r1 =
+              typeof p.roleIndex1 === 'number'
+                ? ROLES[p.roleIndex1]?.name
+                : null;
+            const r2 =
+              typeof p.roleIndex2 === 'number'
+                ? ROLES[p.roleIndex2]?.name
+                : null;
+            return {
+              name: p.name || 'Player',
+              role: `1:${r1 || '—'} 2:${r2 || '—'}`,
+            };
+          }
           const rn =
             typeof p.roleIndex === 'number' ? ROLES[p.roleIndex]?.name : null;
           return { name: p.name || 'Player', role: rn || '選角中' };
         });
 
         const role = ROLES[current];
-
         const snapPx = snapPxRef.current;
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
+
+        const blocked =
+          room?.mode === 'DUAL' && typeof selectedOtherRole === 'number'
+            ? selectedOtherRole
+            : null;
 
         return e(
           'div',
@@ -1880,7 +2384,11 @@
               e(
                 'div',
                 { className: 'brand' },
-                e('div', { className: 'title' }, '選擇角色'),
+                e(
+                  'div',
+                  { className: 'title' },
+                  room?.mode === 'DUAL' ? `選擇角色（角色${slot}）` : '選擇角色'
+                ),
                 e(
                   'div',
                   { className: 'sub' },
@@ -1909,7 +2417,6 @@
             e(
               'div',
               {
-                ref: carouselRef,
                 className: 'carousel',
                 onPointerDown,
                 onPointerMove,
@@ -1956,9 +2463,8 @@
                       : 'rgba(255,255,255,0.12)',
                   };
 
-                  if (opacity === 0) {
+                  if (opacity === 0)
                     style.transform = `translate3d(${tx}%,0,0) scale(0.72)`;
-                  }
 
                   return e(
                     'div',
@@ -1981,7 +2487,14 @@
                         })
                       )
                     ),
-                    e('div', { className: 'roleDesc' }, r.desc),
+                    e(
+                      'div',
+                      { className: 'roleDesc' },
+                      r.desc,
+                      blocked !== null && blocked === i
+                        ? '（⚠️ 你的另一個角色已選這個，不能重複）'
+                        : ''
+                    ),
                     e(
                       'div',
                       { className: 'roleStats' },
@@ -2040,7 +2553,14 @@
                       e('div', { className: r.shape, style: { color: '#fff' } })
                     )
                   ),
-                  e('div', { className: 'roleDesc' }, r.desc),
+                  e(
+                    'div',
+                    { className: 'roleDesc' },
+                    r.desc,
+                    blocked !== null && blocked === i
+                      ? '（⚠️ 你的另一個角色已選這個，不能重複）'
+                      : ''
+                  ),
                   e(
                     'div',
                     { className: 'roleStats' },
@@ -2082,8 +2602,18 @@
             ),
             e(
               'button',
-              { className: 'confirm', onClick: () => onConfirm(current) },
-              '確定角色'
+              {
+                className: 'confirm',
+                disabled: blocked !== null && current === blocked,
+                onClick: () => {
+                  if (blocked !== null && current === blocked) {
+                    alert('同一玩家的 角色1 / 角色2 不能重複');
+                    return;
+                  }
+                  onConfirm(current);
+                },
+              },
+              room?.mode === 'DUAL' ? `確定為 角色${slot}` : '確定角色'
             )
           )
         );
@@ -2093,6 +2623,8 @@
         board,
         onPlace,
         room,
+        playersOverride,
+        modeOverride,
         highlightSources,
         highlightTargets,
         highlightGudo,
@@ -2105,6 +2637,14 @@
         const size = board.length;
         const cells = [];
 
+        const roomLike = {
+          ...(room || {}),
+          mode: modeOverride || room?.mode,
+          players: Array.isArray(playersOverride)
+            ? playersOverride
+            : room?.players,
+        };
+
         function isFxCell(pos, x, y) {
           return pos && pos.x === x && pos.y === y;
         }
@@ -2112,9 +2652,6 @@
         for (let y = 0; y < size; y++) {
           for (let x = 0; x < size; x++) {
             const v = board[y][x];
-            const player =
-              v > 0 ? room.players[(v - 1) % room.players.length] : null;
-            const color = player ? COLORS[player.colorIndex || 0] : '#fff';
 
             let className = 'cell';
             if (highlightSources.some((p) => p.x === x && p.y === y))
@@ -2127,7 +2664,6 @@
               className += ' highlight-gudo-target';
             if (highlightGudoSelf.some((p) => p.x === x && p.y === y))
               className += ' highlight-gudo-self';
-
             if (highlightJeiceTargets.some((p) => p.x === x && p.y === y))
               className += ' highlight-jeice-target';
             if (
@@ -2141,18 +2677,28 @@
             if (isFxCell(fx?.to, x, y)) className += ' fx-pop';
 
             let inner = null;
+
             if (v > 0) {
-              const role = ROLES[player.roleIndex] || ROLES[0];
+              const { ownerIndex, slot } = decodeToken(v);
+              const player = roomLike.players?.[ownerIndex] || null;
+              const color =
+                player && typeof player.colorIndex === 'number'
+                  ? COLORS[player.colorIndex]
+                  : '#fff';
+              const roleIdx = getPlayerRoleIndex(roomLike, player, slot);
+              const role = ROLES[typeof roleIdx === 'number' ? roleIdx : 0];
               inner = e('div', { className: role.shape, style: { color } });
             } else if (v < 0) {
               const ownerIndex = Math.abs(v) - 1;
-              const owner = room.players[ownerIndex];
-              const baseColor = COLORS[owner.colorIndex || 0];
-              const darker = `rgb(${
-                parseInt(baseColor.slice(1, 3), 16) * 0.6
-              }, ${parseInt(baseColor.slice(3, 5), 16) * 0.6}, ${
-                parseInt(baseColor.slice(5, 7), 16) * 0.6
-              })`;
+              const owner = roomLike.players?.[ownerIndex];
+              const baseColor =
+                owner && typeof owner.colorIndex === 'number'
+                  ? COLORS[owner.colorIndex]
+                  : '#888';
+              const r = Math.round(parseInt(baseColor.slice(1, 3), 16) * 0.6);
+              const g = Math.round(parseInt(baseColor.slice(3, 5), 16) * 0.6);
+              const b = Math.round(parseInt(baseColor.slice(5, 7), 16) * 0.6);
+              const darker = `rgb(${r}, ${g}, ${b})`;
               inner = e('div', {
                 className: 'grayX',
                 style: { color: darker },
@@ -2177,12 +2723,7 @@
           const sy = from.y * cell + pad;
           const dx = (to.x - from.x) * cell;
           const dy = (to.y - from.y) * cell;
-          return {
-            left: sx + 'px',
-            top: sy + 'px',
-            '--dx': dx,
-            '--dy': dy,
-          };
+          return { left: sx + 'px', top: sy + 'px', '--dx': dx, '--dy': dy };
         }
 
         const fx1 = fx?.type === 'jeice' ? orbStyle(fx.from, fx.target) : null;
@@ -2204,17 +2745,9 @@
             ? e(
                 'div',
                 { className: 'fxLayer' },
-                fx1
-                  ? e('div', {
-                      className: 'jeiceOrb',
-                      style: fx1,
-                    })
-                  : null,
+                fx1 ? e('div', { className: 'jeiceOrb', style: fx1 }) : null,
                 fx2
-                  ? e('div', {
-                      className: 'jeiceOrb secondary',
-                      style: fx2,
-                    })
+                  ? e('div', { className: 'jeiceOrb secondary', style: fx2 })
                   : null
               )
             : null
