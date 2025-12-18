@@ -18,15 +18,17 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  // === 房間系統 ===
   socket.on('createRoom', (data, cb) => {
     let roomId = '';
     do {
-      roomId = String(Math.floor(11 + Math.random() * 89)); // 11~99
-    } while (rooms[roomId]); // 避免撞號
+      roomId = String(Math.floor(11 + Math.random() * 89));
+    } while (rooms[roomId]);
+
+    const mode = data?.mode === 'DUAL' ? 'DUAL' : 'SINGLE';
 
     const room = {
       id: roomId,
+      mode,
       maxPlayers: data.maxPlayers || 4,
       boardSize: 15,
       targetN: 5,
@@ -35,10 +37,11 @@ io.on('connection', (socket) => {
       players: [],
       board: gameManager.createEmptyBoard(15),
       turnIndex: 0,
+      turnSlot: mode === 'DUAL' ? 1 : 1,
       roundCount: 1,
       ginyuState: null,
       gudoState: null,
-      jeiceState: null, // ✅ 吉斯狀態
+      jeiceState: null,
     };
 
     room.players.push({
@@ -46,12 +49,16 @@ io.on('connection', (socket) => {
       name: data.name || 'Player',
       ready: false,
       colorIndex: null,
+
       roleIndex: null,
+      roleIndex1: null,
+      roleIndex2: null,
+
       placedThisTurn: 0,
       hasPlacedCross: false,
       usedGinyuThisTurn: false,
       usedGudoThisTurn: false,
-      usedJeiceThisTurn: false, // ✅
+      usedJeiceThisTurn: false,
       wins: 0,
     });
 
@@ -72,12 +79,16 @@ io.on('connection', (socket) => {
       name: data.name,
       ready: false,
       colorIndex: null,
+
       roleIndex: null,
+      roleIndex1: null,
+      roleIndex2: null,
+
       placedThisTurn: 0,
       hasPlacedCross: false,
       usedGinyuThisTurn: false,
       usedGudoThisTurn: false,
-      usedJeiceThisTurn: false, // ✅
+      usedJeiceThisTurn: false,
       wins: 0,
     });
 
@@ -86,7 +97,31 @@ io.on('connection', (socket) => {
     io.to(room.id).emit('roomUpdated', room);
   });
 
-  // === 玩家設定 ===
+  // ✅ 新增：退出房間（防呆 UI）
+  socket.on('leaveRoom', (data, cb) => {
+    const room = rooms[data.roomId];
+    if (!room) return cb({ ok: false, message: '房間不存在' });
+
+    const idx = room.players.findIndex((p) => p.id === socket.id);
+    if (idx === -1) return cb({ ok: false, message: '你不在此房間' });
+
+    room.players.splice(idx, 1);
+    socket.leave(room.id);
+
+    // 若房主走了，轉交房主（簡單處理：第一位玩家）
+    if (room.hostId === socket.id) {
+      room.hostId = room.players[0]?.id || null;
+    }
+
+    if (room.players.length === 0) {
+      delete rooms[room.id];
+    } else {
+      io.to(room.id).emit('roomUpdated', room);
+    }
+
+    cb({ ok: true });
+  });
+
   socket.on('pickColor', (data, cb) => {
     const room = rooms[data.roomId];
     const p = room?.players.find((p) => p.id === socket.id);
@@ -99,8 +134,33 @@ io.on('connection', (socket) => {
   socket.on('pickRole', (data, cb) => {
     const room = rooms[data.roomId];
     const p = room?.players.find((p) => p.id === socket.id);
-    if (!p) return cb({ ok: false });
-    p.roleIndex = data.roleIndex;
+    if (!p) return cb({ ok: false, message: '玩家不存在' });
+
+    const roleIndex = data.roleIndex;
+    const slot = data.slot;
+
+    if (room?.mode !== 'DUAL') {
+      p.roleIndex = roleIndex;
+      cb({ ok: true, room });
+      io.to(room.id).emit('roomUpdated', room);
+      return;
+    }
+
+    if (slot !== 1 && slot !== 2) {
+      return cb({ ok: false, message: 'DUAL 模式請指定角色槽位(slot=1/2)' });
+    }
+
+    const other = slot === 1 ? p.roleIndex2 : p.roleIndex1;
+    if (typeof other === 'number' && other === roleIndex) {
+      return cb({
+        ok: false,
+        message: '同一玩家的 角色1 / 角色2 不能選相同角色',
+      });
+    }
+
+    if (slot === 1) p.roleIndex1 = roleIndex;
+    else p.roleIndex2 = roleIndex;
+
     cb({ ok: true, room });
     io.to(room.id).emit('roomUpdated', room);
   });
@@ -109,17 +169,32 @@ io.on('connection', (socket) => {
     const room = rooms[data.roomId];
     const p = room?.players.find((p) => p.id === socket.id);
     if (!p) return cb({ ok: false });
-    if (p.colorIndex === null || p.roleIndex === null)
-      return cb({ ok: false, message: '請先選擇顏色與角色' });
+
+    if (p.colorIndex === null) {
+      return cb({ ok: false, message: '請先選擇顏色' });
+    }
+
+    if (room?.mode === 'DUAL') {
+      if (p.roleIndex1 === null || p.roleIndex2 === null) {
+        return cb({ ok: false, message: 'DUAL 模式請先選擇 角色1 與 角色2' });
+      }
+    } else {
+      if (p.roleIndex === null) {
+        return cb({ ok: false, message: '請先選擇角色' });
+      }
+    }
+
     p.ready = true;
     cb({ ok: true, room });
     io.to(room.id).emit('roomUpdated', room);
   });
 
-  // === 遊戲控制 ===
   socket.on('startGame', (data) => {
     const room = rooms[data.roomId];
-    if (room && room.hostId === socket.id) gameManager.startGame(data.roomId);
+    // ✅ 修改：只能在 LOBBY 才能開始（避免賽後倒數看棋盤時誤開新局）
+    if (room && room.hostId === socket.id && room.status === 'LOBBY') {
+      gameManager.startGame(data.roomId);
+    }
   });
 
   socket.on('place', (data, cb) => {
@@ -130,7 +205,6 @@ io.on('connection', (socket) => {
     gameManager.restartGame(data.roomId);
   });
 
-  // === 基紐能力事件 ===
   socket.on('ginyuAbilityStart', (data, cb) => {
     gameManager.ginyuAbilityStart(socket, data, cb);
   });
@@ -143,12 +217,10 @@ io.on('connection', (socket) => {
     gameManager.ginyuSelectTarget(socket, data, cb);
   });
 
-  // ✅ 基紐能力取消（前端反悔/點錯取消）
   socket.on('ginyuCancel', (data, cb) => {
     gameManager.ginyuCancel(socket, data, cb || (() => {}));
   });
 
-  // === 古杜能力事件 ===
   socket.on('gudoAbilityStart', (data, cb) => {
     gameManager.gudoAbilityStart(socket, data, cb);
   });
@@ -165,27 +237,22 @@ io.on('connection', (socket) => {
     gameManager.gudoMovePiece(socket, data, cb);
   });
 
-  // ✅ 吉斯能力事件（Jeice）
   socket.on('jeiceAbilityStart', (data, cb) => {
     gameManager.jeiceAbilityStart(socket, data, cb);
   });
 
-  // 吉斯：先落子（只能空格、不能叉叉；落子後回傳可擊退 targets）
   socket.on('jeicePlace', (data, cb) => {
     gameManager.jeicePlace(socket, data, cb);
   });
 
-  // 吉斯：選擇要擊退的相鄰敵方「一般棋」
   socket.on('jeiceSelectTarget', (data, cb) => {
     gameManager.jeiceSelectTarget(socket, data, cb);
   });
 
-  // 吉斯：取消（放棄整段技能流程；若已落子，依 gameManager 規則處理）
   socket.on('jeiceCancel', (data, cb) => {
     gameManager.jeiceCancel(socket, data, cb || (() => {}));
   });
 
-  // === 斷線處理 ===
   socket.on('disconnect', () => {
     for (const roomId in rooms) {
       const room = rooms[roomId];
@@ -193,6 +260,9 @@ io.on('connection', (socket) => {
       if (index !== -1) {
         room.players.splice(index, 1);
         io.to(roomId).emit('roomUpdated', room);
+        if (room.hostId === socket.id) {
+          room.hostId = room.players[0]?.id || null;
+        }
         if (room.players.length === 0) delete rooms[roomId];
         break;
       }
