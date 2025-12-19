@@ -1224,14 +1224,32 @@
 
         async unlock() {
           if (this.unlocked) return true;
-          // 用「極短無聲」嘗試解鎖 autoplay
-          const silent = new Audio(
-            'data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA'
-          );
-          silent.volume = 0;
+        
+          // 用一個「真的存在」的音檔做解鎖（不要用 data-uri）
+          const src =
+            AUDIO_ASSETS.bgm_lobby ||
+            AUDIO_ASSETS.bgm_battle_loop ||
+            AUDIO_ASSETS.bgm_battle_intro;
+        
+          if (!src) {
+            // 沒有可用音檔就當作失敗
+            this.unlocked = false;
+            this.onNeedGesture();
+            return false;
+          }
+        
+          // 保險：如果你 AUDIO_ASSETS 沒有寫前導 /，這裡補上
+          const url = src.startsWith('/') ? src : `/${src}`;
+        
+          const a = new Audio(url);
+          a.preload = 'auto';
+          a.volume = 0;
+        
           try {
-            await silent.play();
-            silent.pause();
+            await a.play();     // ✅ 這次在「使用者點按」時通常會成功
+            a.pause();
+            a.currentTime = 0;
+        
             this.unlocked = true;
             this.onUnlocked();
             return true;
@@ -1241,6 +1259,7 @@
             return false;
           }
         }
+
 
         _isAutoplayBlocked(err) {
           const name = err?.name || '';
