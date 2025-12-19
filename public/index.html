@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <title>基紐棋 (Geniuchi)</title>
     <style>
@@ -17,17 +17,20 @@
         --muted: rgba(255, 255, 255, 0.65);
         --shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
         --r: 18px;
+
+        /* ✅ visualViewport vars (mobile keyboard / zoom safe) */
+        --vvh: 100dvh;
+        --vv-top: 0px;
+        --vv-bottom: 0px;
       }
 
       * {
         box-sizing: border-box;
       }
 
-      /* ✅ 禁止系統手勢縮放（配合 meta viewport） */
       html,
       body {
-        touch-action: manipulation;
-        -webkit-text-size-adjust: 100%;
+        height: 100%;
       }
 
       body {
@@ -59,6 +62,7 @@
         background: rgba(255, 255, 255, 0.14);
         color: var(--text);
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
+        -webkit-tap-highlight-color: transparent;
       }
       button:active {
         transform: translateY(1px);
@@ -76,6 +80,10 @@
         background: rgba(255, 255, 255, 0.08);
         color: var(--text);
         outline: none;
+
+        /* ✅ iOS Safari/Chrome auto-zoom prevention */
+        font-size: 16px;
+        line-height: 1.2;
       }
 
       .appRoot {
@@ -376,15 +384,8 @@
         justify-content: center;
         cursor: pointer;
         position: relative;
+        -webkit-tap-highlight-color: transparent;
       }
-
-      /* ✅ 棋局操作區：完全不給 pinch/雙擊縮放機會 */
-      .boardWrap,
-      .board,
-      .cell {
-        touch-action: none;
-      }
-
       .highlight-source {
         outline: 2px solid #b84bff;
       }
@@ -532,10 +533,13 @@
         }
       }
 
-      /* ===== 選角：全螢幕 ===== */
+      /* ===== 選角：全螢幕（mobile viewport safe）===== */
       .roleScreen {
         position: fixed;
-        inset: 0;
+        left: 0;
+        right: 0;
+        top: var(--vv-top);
+        height: var(--vvh);
         z-index: 50;
         background: radial-gradient(
             900px 700px at 30% 0%,
@@ -550,10 +554,11 @@
           var(--bg);
         display: flex;
         flex-direction: column;
+        overscroll-behavior: none;
       }
 
       .roleTop {
-        padding: 14px;
+        padding: calc(14px + env(safe-area-inset-top)) 14px 12px;
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
@@ -583,6 +588,7 @@
         white-space: nowrap;
       }
 
+      /* ✅ 給底部 Dock 預留空間，避免被遮住 */
       .roleMain {
         flex: 1;
         display: flex;
@@ -590,18 +596,52 @@
         justify-content: center;
         gap: 12px;
         padding: 0 12px;
+        padding-bottom: calc(
+          150px + env(safe-area-inset-bottom) + var(--vv-bottom)
+        );
       }
 
+      /* ✅ 底部 Dock：更「一體」＋鍵盤彈出也不擋按鈕 */
       .roleBottom {
-        padding: 14px;
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(12px + var(--vv-bottom));
+        z-index: 70;
+
         display: flex;
         gap: 10px;
         align-items: center;
         justify-content: space-between;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(0, 0, 0, 0.15);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+
+        padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+        border-radius: 22px;
+
+        background: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0.22),
+          rgba(0, 0, 0, 0.35)
+        );
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.62);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+
+      .roleBottom::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: -18px;
+        height: 22px;
+        border-radius: 20px 20px 0 0;
+        background: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0),
+          rgba(0, 0, 0, 0.25)
+        );
+        pointer-events: none;
       }
 
       .confirm {
@@ -626,7 +666,7 @@
         position: relative;
         height: min(520px, 66vh);
         overflow: hidden;
-        touch-action: none;
+        touch-action: pan-y;
         -webkit-user-select: none;
         user-select: none;
       }
@@ -855,29 +895,6 @@
     <script>
       const e = React.createElement;
 
-      // ✅ 全域鎖掉 pinch zoom / double-tap zoom（手機更爽）
-      (function lockMobileZoom() {
-        // iOS Safari/Chrome 的 gesture 事件（pinch）
-        const prevent = (ev) => ev.preventDefault();
-        document.addEventListener('gesturestart', prevent, { passive: false });
-        document.addEventListener('gesturechange', prevent, { passive: false });
-        document.addEventListener('gestureend', prevent, { passive: false });
-
-        // Double-tap zoom（兩下點擊放大）
-        let lastTouchEnd = 0;
-        document.addEventListener(
-          'touchend',
-          function (ev) {
-            const now = Date.now();
-            if (now - lastTouchEnd <= 300) {
-              ev.preventDefault();
-            }
-            lastTouchEnd = now;
-          },
-          { passive: false }
-        );
-      })();
-
       const COLORS = [
         '#e53935',
         '#8e24aa',
@@ -973,6 +990,30 @@
         return player.roleIndex;
       }
 
+      /* ✅ visualViewport -> CSS vars */
+      function setupVisualViewportVars() {
+        const root = document.documentElement;
+        const vv = window.visualViewport;
+
+        if (!vv) {
+          root.style.setProperty('--vvh', window.innerHeight + 'px');
+          root.style.setProperty('--vv-top', '0px');
+          root.style.setProperty('--vv-bottom', '0px');
+          return;
+        }
+
+        const h = Math.max(100, Math.round(vv.height));
+        const top = Math.max(0, Math.round(vv.offsetTop || 0));
+        const bottom = Math.max(
+          0,
+          Math.round(window.innerHeight - (vv.height + vv.offsetTop))
+        );
+
+        root.style.setProperty('--vvh', h + 'px');
+        root.style.setProperty('--vv-top', top + 'px');
+        root.style.setProperty('--vv-bottom', bottom + 'px');
+      }
+
       function App() {
         const [socket, setSocket] = React.useState(null);
 
@@ -1020,6 +1061,7 @@
         // ✅ 賽後保留 10 秒（保留終局棋盤）
         const [postGame, setPostGame] = React.useState(null); // { winnerName, secondsLeft, finalBoard }
         const postGameTimerRef = React.useRef(null);
+        const postGameRef = React.useRef(null);
 
         const roomRef = React.useRef(null);
 
@@ -1027,11 +1069,28 @@
         const jeiceAutoKeyRef = React.useRef(null);
 
         React.useEffect(() => {
+          postGameRef.current = postGame;
+        }, [postGame]);
+
+        // ✅ socket 只連一次（避免玩家不存在）
+        React.useEffect(() => {
+          setupVisualViewportVars();
+          window.addEventListener('resize', setupVisualViewportVars);
+          if (window.visualViewport) {
+            window.visualViewport.addEventListener(
+              'resize',
+              setupVisualViewportVars
+            );
+            window.visualViewport.addEventListener(
+              'scroll',
+              setupVisualViewportVars
+            );
+          }
+
           const s = connectSocket();
           setSocket(s);
 
           s.on('roomUpdated', (r) => {
-            // ✅ 重要：就算 postGame 期間也要更新 room（否則你會卡住看不到重選 UI）
             roomRef.current = r;
             setRoom(r);
 
@@ -1060,7 +1119,7 @@
             } catch (e) {}
 
             // ✅ postGame 期間：不覆蓋棋盤、不切 view（讓你繼續看終局）
-            if (!postGame) {
+            if (!postGameRef.current) {
               setBoard(r.board || []);
 
               if (r?.status === 'PLAYING') setView('GAME');
@@ -1072,7 +1131,7 @@
           });
 
           s.on('placed', (payload) => {
-            if (!postGame && payload.board) setBoard(payload.board);
+            if (!postGameRef.current && payload.board) setBoard(payload.board);
 
             if (roomRef.current) {
               roomRef.current = {
@@ -1180,8 +1239,20 @@
             try {
               s.disconnect();
             } catch (e) {}
+
+            window.removeEventListener('resize', setupVisualViewportVars);
+            if (window.visualViewport) {
+              window.visualViewport.removeEventListener(
+                'resize',
+                setupVisualViewportVars
+              );
+              window.visualViewport.removeEventListener(
+                'scroll',
+                setupVisualViewportVars
+              );
+            }
           };
-        }, [postGame]);
+        }, []);
 
         React.useEffect(() => {
           return () => {
@@ -1236,14 +1307,13 @@
           }, 1000);
         }
 
-        // ✅ 回到同房 Lobby（不會回到 ENTRY，更不會看到建立/加入按鈕）
+        // ✅ 回到同房 Lobby（不會回到 ENTRY）
         function backToRoom() {
           if (postGameTimerRef.current) {
             clearInterval(postGameTimerRef.current);
             postGameTimerRef.current = null;
           }
           setPostGame(null);
-          // 只要還在 room，就進 ROOM 介面
           if (roomRef.current) setView('ROOM');
         }
 
@@ -1285,7 +1355,6 @@
         function leaveRoom() {
           const rid = roomRef.current?.id || room?.id;
           if (!rid) {
-            // 直接回 ENTRY
             setRoom(null);
             setBoard([]);
             setView('ENTRY');
@@ -1319,6 +1388,16 @@
 
         function openRoleSelect(slot) {
           if (!room) return;
+
+          // ✅ 進入選角前先 blur（避免輸入框放大造成後續畫面比例怪）
+          try {
+            if (document.activeElement && document.activeElement.blur) {
+              document.activeElement.blur();
+            }
+          } catch (e) {}
+          setupVisualViewportVars();
+          setTimeout(() => setupVisualViewportVars(), 0);
+
           const s = slot === 2 ? 2 : 1;
           setPickingSlot(s);
           setView('ROLE');
@@ -1458,7 +1537,7 @@
                     );
                     if (myIdx >= 0) {
                       const slot = r0?.mode === 'DUAL' ? r0.turnSlot || 1 : 1;
-                      const token = myIdx * 2 + slot; // token from 1
+                      const token = myIdx * 2 + slot;
                       const b2 = deepCopyBoard(r0?.board || board);
                       if (b2?.[y]?.[x] === 0) b2[y][x] = token;
                       if (roomRef.current) roomRef.current.board = b2;
@@ -1800,7 +1879,7 @@
               )
             ),
 
-          // ===== ROOM：房內 Lobby（直接選色/選角/準備/開始）=====
+          // ===== ROOM：房內 Lobby =====
           view === 'ROOM' &&
             inRoom &&
             e(
@@ -2062,17 +2141,6 @@
                       flexWrap: 'wrap',
                     },
                   },
-                  e(
-                    'button',
-                    {
-                      onClick: () => setView('ROOM'),
-                      style: {
-                        background: 'rgba(255,255,255,0.10)',
-                        border: '1px solid rgba(255,255,255,0.18)',
-                      },
-                    },
-                    '回房間'
-                  ),
                   isMyTurn && myActiveRoleIndex === 0
                     ? e(
                         'button',
@@ -2228,6 +2296,20 @@
         });
 
         const snapPxRef = React.useRef(260);
+
+        React.useEffect(() => {
+          // ✅ 選角畫面開啟時：鎖 body scroll + 校正 viewport vars
+          const prevOverflow = document.body.style.overflow;
+          document.body.style.overflow = 'hidden';
+          setupVisualViewportVars();
+          const t = setTimeout(() => setupVisualViewportVars(), 0);
+
+          return () => {
+            clearTimeout(t);
+            document.body.style.overflow = prevOverflow;
+            setupVisualViewportVars();
+          };
+        }, []);
 
         React.useEffect(() => {
           function recalc() {
@@ -2568,7 +2650,7 @@
             { className: 'roleBottom' },
             e(
               'div',
-              { className: 'hint' },
+              { className: 'hint', style: { maxWidth: '48%' } },
               lockedIndex === null
                 ? `目前選擇：${role?.name || '—'}（桌機：點一下可鎖定）`
                 : `已鎖定：${role?.name || '—'}（可點其他卡改選）`
