@@ -17,10 +17,22 @@
         --muted: rgba(255, 255, 255, 0.65);
         --shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
         --r: 18px;
+
+        /* ✅ visualViewport vars (mobile keyboard / zoom safe) */
+        --vvh: 100dvh;
+        --vv-top: 0px;
+        --vv-bottom: 0px;
       }
+
       * {
         box-sizing: border-box;
       }
+
+      html,
+      body {
+        height: 100%;
+      }
+
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
           Arial, Helvetica, sans-serif;
@@ -50,6 +62,7 @@
         background: rgba(255, 255, 255, 0.14);
         color: var(--text);
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
+        -webkit-tap-highlight-color: transparent;
       }
       button:active {
         transform: translateY(1px);
@@ -67,6 +80,10 @@
         background: rgba(255, 255, 255, 0.08);
         color: var(--text);
         outline: none;
+
+        /* ✅ iOS Safari/Chrome auto-zoom prevention */
+        font-size: 16px;
+        line-height: 1.2;
       }
 
       .appRoot {
@@ -367,6 +384,7 @@
         justify-content: center;
         cursor: pointer;
         position: relative;
+        -webkit-tap-highlight-color: transparent;
       }
       .highlight-source {
         outline: 2px solid #b84bff;
@@ -515,10 +533,13 @@
         }
       }
 
-      /* ===== 選角：全螢幕 ===== */
+      /* ===== 選角：全螢幕（mobile viewport safe）===== */
       .roleScreen {
         position: fixed;
-        inset: 0;
+        left: 0;
+        right: 0;
+        top: var(--vv-top);
+        height: var(--vvh);
         z-index: 50;
         background: radial-gradient(
             900px 700px at 30% 0%,
@@ -533,10 +554,11 @@
           var(--bg);
         display: flex;
         flex-direction: column;
+        overscroll-behavior: none;
       }
 
       .roleTop {
-        padding: 14px;
+        padding: calc(14px + env(safe-area-inset-top)) 14px 12px;
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
@@ -555,6 +577,7 @@
         gap: 8px;
         flex-wrap: wrap;
       }
+
       .miniChip {
         font-size: 12px;
         padding: 8px 10px;
@@ -565,6 +588,7 @@
         white-space: nowrap;
       }
 
+      /* ✅ 給底部 Dock 預留空間，避免被遮住 */
       .roleMain {
         flex: 1;
         display: flex;
@@ -572,18 +596,52 @@
         justify-content: center;
         gap: 12px;
         padding: 0 12px;
+        padding-bottom: calc(
+          150px + env(safe-area-inset-bottom) + var(--vv-bottom)
+        );
       }
 
+      /* ✅ 底部 Dock：更「一體」＋鍵盤彈出也不擋按鈕 */
       .roleBottom {
-        padding: 14px;
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(12px + var(--vv-bottom));
+        z-index: 70;
+
         display: flex;
         gap: 10px;
         align-items: center;
         justify-content: space-between;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(0, 0, 0, 0.15);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+
+        padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+        border-radius: 22px;
+
+        background: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0.22),
+          rgba(0, 0, 0, 0.35)
+        );
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.62);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+
+      .roleBottom::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: -18px;
+        height: 22px;
+        border-radius: 20px 20px 0 0;
+        background: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0),
+          rgba(0, 0, 0, 0.25)
+        );
+        pointer-events: none;
       }
 
       .confirm {
@@ -608,7 +666,7 @@
         position: relative;
         height: min(520px, 66vh);
         overflow: hidden;
-        touch-action: none;
+        touch-action: pan-y;
         -webkit-user-select: none;
         user-select: none;
       }
@@ -827,7 +885,6 @@
       }
     </style>
   </head>
-
   <body>
     <div id="app"></div>
 
@@ -918,6 +975,7 @@
         });
       }
 
+      // token 解析：token = ownerIndex*2 + slot（slot=1/2），token 從 1 開始
       function decodeToken(v) {
         const ownerIndex = Math.floor((v - 1) / 2);
         const slot = ((v - 1) % 2) + 1;
@@ -926,15 +984,40 @@
 
       function getPlayerRoleIndex(room, player, slot) {
         if (!room || !player) return null;
-        if (room.mode === 'DUAL')
+        if (room.mode === 'DUAL') {
           return slot === 2 ? player.roleIndex2 : player.roleIndex1;
+        }
         return player.roleIndex;
+      }
+
+      /* ✅ visualViewport -> CSS vars */
+      function setupVisualViewportVars() {
+        const root = document.documentElement;
+        const vv = window.visualViewport;
+
+        if (!vv) {
+          root.style.setProperty('--vvh', window.innerHeight + 'px');
+          root.style.setProperty('--vv-top', '0px');
+          root.style.setProperty('--vv-bottom', '0px');
+          return;
+        }
+
+        const h = Math.max(100, Math.round(vv.height));
+        const top = Math.max(0, Math.round(vv.offsetTop || 0));
+        const bottom = Math.max(
+          0,
+          Math.round(window.innerHeight - (vv.height + vv.offsetTop))
+        );
+
+        root.style.setProperty('--vvh', h + 'px');
+        root.style.setProperty('--vv-top', top + 'px');
+        root.style.setProperty('--vv-bottom', bottom + 'px');
       }
 
       function App() {
         const [socket, setSocket] = React.useState(null);
 
-        // ENTRY｜ROOM｜ROLE｜GAME
+        // ✅ 新流程：ENTRY（未進房）｜ROOM（已在房內/大廳）｜ROLE（全螢幕選角）｜GAME（對局）
         const [view, setView] = React.useState('ENTRY');
 
         const [room, setRoom] = React.useState(null);
@@ -942,6 +1025,8 @@
         const [name, setName] = React.useState('');
 
         const [selectedColor, setSelectedColor] = React.useState(null);
+
+        // ✅ DUAL：角色1/角色2
         const [selectedRole1, setSelectedRole1] = React.useState(null);
         const [selectedRole2, setSelectedRole2] = React.useState(null);
         const [pickingSlot, setPickingSlot] = React.useState(1);
@@ -964,141 +1049,90 @@
         const [jeiceMode, setJeiceMode] = React.useState(false);
         const [jeiceStep, setJeiceStep] = React.useState('idle'); // idle | place | selectTarget
 
+        // ✅ 回合 UI 資訊（含顏色/形狀）
         const [turnMeta, setTurnMeta] = React.useState(null);
+
         const [copied, setCopied] = React.useState(false);
 
+        // ✅ Jeice FX
         const [fx, setFx] = React.useState(null);
         const fxTimerRef = React.useRef(null);
 
-        // ✅ 賽後固定終局棋盤 + 固定棋子外觀（playersSnap）
-        const [postGame, setPostGame] = React.useState(null);
-        const postGameRef = React.useRef(null);
+        // ✅ 賽後保留 10 秒（保留終局棋盤）
+        const [postGame, setPostGame] = React.useState(null); // { winnerName, secondsLeft, finalBoard }
         const postGameTimerRef = React.useRef(null);
-        const [postGameDismissed, setPostGameDismissed] = React.useState(false);
+        const postGameRef = React.useRef(null);
 
         const roomRef = React.useRef(null);
 
         // ✅ Jeice auto-start guard
         const jeiceAutoKeyRef = React.useRef(null);
 
-        // ✅ 12181700：socket 只連一次（避免賽後因 state 變化重連導致「玩家不存在」）
         React.useEffect(() => {
+          postGameRef.current = postGame;
+        }, [postGame]);
+
+        // ✅ socket 只連一次（避免玩家不存在）
+        React.useEffect(() => {
+          setupVisualViewportVars();
+          window.addEventListener('resize', setupVisualViewportVars);
+          if (window.visualViewport) {
+            window.visualViewport.addEventListener(
+              'resize',
+              setupVisualViewportVars
+            );
+            window.visualViewport.addEventListener(
+              'scroll',
+              setupVisualViewportVars
+            );
+          }
+
           const s = connectSocket();
           setSocket(s);
-
-          function updateTurnInfo(r) {
-            if (!r || !r.players || r.status !== 'PLAYING') {
-              setTurnMeta(null);
-              return;
-            }
-            const turnPlayer = r.players[r.turnIndex];
-            const slot = r.mode === 'DUAL' ? r.turnSlot || 1 : 1;
-            const roleIdx = getPlayerRoleIndex(r, turnPlayer, slot);
-            const roleName =
-              typeof roleIdx === 'number' ? ROLES[roleIdx]?.name : '未選角';
-            const shape =
-              typeof roleIdx === 'number' ? ROLES[roleIdx]?.shape : 'circle';
-            const color =
-              typeof turnPlayer?.colorIndex === 'number'
-                ? COLORS[turnPlayer.colorIndex]
-                : 'rgba(255,255,255,0.45)';
-            setTurnMeta({
-              round: r.roundCount || 1,
-              playerName: turnPlayer?.name || 'N/A',
-              slot,
-              roleName,
-              shape,
-              color,
-            });
-          }
-
-          function tryReapplyMyPicks(r) {
-            // ✅ 讓玩家在 ENDED 先選下一局，restartGame 清空後自動回填
-            if (!r || !r.id || !s?.id) return;
-            const me = r.players?.find((p) => p.id === s.id);
-            if (!me) return;
-
-            // color
-            if (selectedColor !== null && me.colorIndex === null) {
-              s.emit(
-                'pickColor',
-                { roomId: r.id, colorIndex: selectedColor },
-                () => {}
-              );
-            }
-
-            if (r.mode === 'DUAL') {
-              if (typeof selectedRole1 === 'number' && me.roleIndex1 === null) {
-                s.emit(
-                  'pickRole',
-                  { roomId: r.id, roleIndex: selectedRole1, slot: 1 },
-                  () => {}
-                );
-              }
-              if (typeof selectedRole2 === 'number' && me.roleIndex2 === null) {
-                s.emit(
-                  'pickRole',
-                  { roomId: r.id, roleIndex: selectedRole2, slot: 2 },
-                  () => {}
-                );
-              }
-            } else {
-              if (typeof selectedRole1 === 'number' && me.roleIndex === null) {
-                s.emit(
-                  'pickRole',
-                  { roomId: r.id, roleIndex: selectedRole1 },
-                  () => {}
-                );
-              }
-            }
-          }
 
           s.on('roomUpdated', (r) => {
             roomRef.current = r;
             setRoom(r);
 
-            // ✅ 同步自己：只在 server 有值時覆蓋本地（server null 不要把你剛選的清掉）
+            // 同步自己選到的顏色/角色
             try {
               const me2 = r?.players?.find((p) => p.id === s.id);
               if (me2) {
                 if (typeof me2.colorIndex === 'number')
                   setSelectedColor(me2.colorIndex);
+                else setSelectedColor(null);
+
                 if (r?.mode === 'DUAL') {
-                  if (typeof me2.roleIndex1 === 'number')
-                    setSelectedRole1(me2.roleIndex1);
-                  if (typeof me2.roleIndex2 === 'number')
-                    setSelectedRole2(me2.roleIndex2);
+                  setSelectedRole1(
+                    typeof me2.roleIndex1 === 'number' ? me2.roleIndex1 : null
+                  );
+                  setSelectedRole2(
+                    typeof me2.roleIndex2 === 'number' ? me2.roleIndex2 : null
+                  );
                 } else {
-                  if (typeof me2.roleIndex === 'number')
-                    setSelectedRole1(me2.roleIndex);
+                  setSelectedRole1(
+                    typeof me2.roleIndex === 'number' ? me2.roleIndex : null
+                  );
+                  setSelectedRole2(null);
                 }
               }
             } catch (e) {}
 
-            // ✅ postGame 期間：不要用 room.board 覆蓋終局棋盤
+            // ✅ postGame 期間：不覆蓋棋盤、不切 view（讓你繼續看終局）
             if (!postGameRef.current) {
               setBoard(r.board || []);
-            }
 
-            // ✅ 只要在房間內：狀態變化要能切畫面（但 postGame 正在看終局棋盤時不強迫切回）
-            if (!postGameRef.current) {
               if (r?.status === 'PLAYING') setView('GAME');
-              else setView('ROOM');
-            } else {
-              // 如果你已經按返回房間（dismissed），那就保持 ROOM，不要被別人更新拉回 GAME
-              // 若你還在 GAME 看終局，維持 GAME 直到倒數結束
+              else if (r?.status === 'LOBBY') setView('ROOM');
+              else if (r?.status === 'ENDED') setView('GAME');
             }
 
             updateTurnInfo(r);
-
-            // ✅ 自動回填（restartGame 後 server 清空，這裡會補回你剛剛先選的）
-            tryReapplyMyPicks(r);
           });
 
           s.on('placed', (payload) => {
             if (!postGameRef.current && payload.board) setBoard(payload.board);
 
-            // 更新 roomRef
             if (roomRef.current) {
               roomRef.current = {
                 ...roomRef.current,
@@ -1118,6 +1152,7 @@
                 status: payload.status || roomRef.current.status,
               };
             }
+
             setRoom((prev) => {
               const base = prev || roomRef.current;
               if (!base) return base;
@@ -1140,7 +1175,7 @@
               };
             });
 
-            // Jeice FX
+            // ✅ Jeice FX（由 server 傳 effect）
             if (payload?.effect?.type === 'jeice') {
               if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
               setFx(payload.effect);
@@ -1150,28 +1185,16 @@
               }, 900);
             }
 
-            // win => start postGame
             if (payload.win) {
               const r = roomRef.current;
               const winner = r?.players?.[payload.win.winnerIndex];
               const winnerName = winner ? winner.name : payload.win.winnerId;
 
               const finalBoard = deepCopyBoard(payload.board || board);
-
-              const playersSnap = (r?.players || []).map((p) => ({
-                id: p.id,
-                name: p.name,
-                colorIndex: p.colorIndex,
-                roleIndex: p.roleIndex,
-                roleIndex1: p.roleIndex1,
-                roleIndex2: p.roleIndex2,
-              }));
-              const modeSnap = r?.mode;
-
-              startPostGame(winnerName, finalBoard, playersSnap, modeSnap);
+              startPostGame(winnerName, finalBoard);
             }
 
-            // 清 UI
+            // 清 UI 狀態
             setHighlightSources([]);
             setHighlightTargets([]);
             setHighlightGudo([]);
@@ -1186,31 +1209,7 @@
             setJeiceMode(false);
             setJeiceStep('idle');
 
-            // update turn
-            const r2 = roomRef.current;
-            if (r2 && r2.status === 'PLAYING') {
-              const turnPlayer = r2.players?.[r2.turnIndex];
-              const slot = r2.mode === 'DUAL' ? r2.turnSlot || 1 : 1;
-              const roleIdx = getPlayerRoleIndex(r2, turnPlayer, slot);
-              const roleName =
-                typeof roleIdx === 'number' ? ROLES[roleIdx]?.name : '未選角';
-              const shape =
-                typeof roleIdx === 'number' ? ROLES[roleIdx]?.shape : 'circle';
-              const color =
-                typeof turnPlayer?.colorIndex === 'number'
-                  ? COLORS[turnPlayer.colorIndex]
-                  : 'rgba(255,255,255,0.45)';
-              setTurnMeta({
-                round: r2.roundCount || 1,
-                playerName: turnPlayer?.name || 'N/A',
-                slot,
-                roleName,
-                shape,
-                color,
-              });
-            } else {
-              setTurnMeta(null);
-            }
+            updateTurnInfo(roomRef.current);
           });
 
           s.on('gudoCancelled', () => {
@@ -1240,8 +1239,20 @@
             try {
               s.disconnect();
             } catch (e) {}
+
+            window.removeEventListener('resize', setupVisualViewportVars);
+            if (window.visualViewport) {
+              window.visualViewport.removeEventListener(
+                'resize',
+                setupVisualViewportVars
+              );
+              window.visualViewport.removeEventListener(
+                'scroll',
+                setupVisualViewportVars
+              );
+            }
           };
-        }, []); // ✅ 只跑一次
+        }, []);
 
         React.useEffect(() => {
           return () => {
@@ -1251,48 +1262,59 @@
           };
         }, []);
 
-        function startPostGame(winnerName, finalBoard, playersSnap, modeSnap) {
+        function updateTurnInfo(r) {
+          if (!r || !r.players || r.status !== 'PLAYING') {
+            setTurnMeta(null);
+            return;
+          }
+          const turnPlayer = r.players[r.turnIndex];
+          const slot = r.mode === 'DUAL' ? r.turnSlot || 1 : 1;
+          const roleIdx = getPlayerRoleIndex(r, turnPlayer, slot);
+          const roleName =
+            typeof roleIdx === 'number' ? ROLES[roleIdx]?.name : '未選角';
+          const shape =
+            typeof roleIdx === 'number' ? ROLES[roleIdx]?.shape : 'circle';
+
+          const color =
+            typeof turnPlayer?.colorIndex === 'number'
+              ? COLORS[turnPlayer.colorIndex]
+              : 'rgba(255,255,255,0.45)';
+
+          setTurnMeta({
+            round: r.roundCount || 1,
+            playerName: turnPlayer?.name || 'N/A',
+            slot,
+            roleName,
+            shape,
+            color,
+          });
+        }
+
+        function startPostGame(winnerName, finalBoard) {
           if (postGameTimerRef.current) clearInterval(postGameTimerRef.current);
 
-          const pg = {
-            winnerName,
-            secondsLeft: 10,
-            finalBoard,
-            playersSnap: Array.isArray(playersSnap) ? playersSnap : null,
-            modeSnap: modeSnap || null,
-          };
-
-          postGameRef.current = pg;
-          setPostGame(pg);
-          setPostGameDismissed(false);
+          setPostGame({ winnerName, secondsLeft: 10, finalBoard });
 
           let left = 10;
           postGameTimerRef.current = setInterval(() => {
             left -= 1;
-            postGameRef.current = postGameRef.current
-              ? { ...postGameRef.current, secondsLeft: left }
-              : null;
-            setPostGame((old) => (old ? { ...old, secondsLeft: left } : old));
+            setPostGame((pg) => (pg ? { ...pg, secondsLeft: left } : pg));
             if (left <= 0) {
               clearInterval(postGameTimerRef.current);
               postGameTimerRef.current = null;
-              finishPostGameToRoom();
+              backToRoom();
             }
           }, 1000);
         }
 
-        function finishPostGameToRoom() {
-          // 結束賽後：清掉終局固定畫面狀態，回 ROOM（Lobby）
-          postGameRef.current = null;
+        // ✅ 回到同房 Lobby（不會回到 ENTRY）
+        function backToRoom() {
+          if (postGameTimerRef.current) {
+            clearInterval(postGameTimerRef.current);
+            postGameTimerRef.current = null;
+          }
           setPostGame(null);
-          setPostGameDismissed(false);
           if (roomRef.current) setView('ROOM');
-        }
-
-        function backToRoomEarly() {
-          // ✅ 12181700：賽後可先回房間選下一局，不要清 postGame（其他人仍可看終局）
-          setPostGameDismissed(true);
-          setView('ROOM');
         }
 
         function onCopyRoomId() {
@@ -1305,7 +1327,6 @@
         }
 
         function createRoom(mode) {
-          if (!socket) return;
           socket.emit(
             'createRoom',
             { maxPlayers: 4, name: name.trim(), mode },
@@ -1313,13 +1334,14 @@
               if (res.ok) {
                 setRoom(res.room);
                 setView('ROOM');
-              } else alert(res.message || '建立失敗');
+              } else {
+                alert(res.message || '建立失敗');
+              }
             }
           );
         }
 
         function joinRoom() {
-          if (!socket) return;
           const id = prompt('輸入房間ID');
           if (!id) return;
           socket.emit('joinRoom', { roomId: id, name: name.trim() }, (res) => {
@@ -1331,7 +1353,6 @@
         }
 
         function leaveRoom() {
-          if (!socket) return;
           const rid = roomRef.current?.id || room?.id;
           if (!rid) {
             setRoom(null);
@@ -1350,71 +1371,88 @@
             setSelectedRole1(null);
             setSelectedRole2(null);
             setView('ENTRY');
-            // 清 postGame
-            postGameRef.current = null;
-            setPostGame(null);
-            setPostGameDismissed(false);
           });
         }
 
         function pickColor(i) {
-          if (!room || !socket) return;
+          if (!room) return;
           setSelectedColor(i);
           socket.emit(
             'pickColor',
             { roomId: room.id, colorIndex: i },
-            () => {}
+            (res) => {
+              if (res.ok) setRoom(res.room);
+            }
           );
         }
 
         function openRoleSelect(slot) {
           if (!room) return;
-          setPickingSlot(slot === 2 ? 2 : 1);
+
+          // ✅ 進入選角前先 blur（避免輸入框放大造成後續畫面比例怪）
+          try {
+            if (document.activeElement && document.activeElement.blur) {
+              document.activeElement.blur();
+            }
+          } catch (e) {}
+          setupVisualViewportVars();
+          setTimeout(() => setupVisualViewportVars(), 0);
+
+          const s = slot === 2 ? 2 : 1;
+          setPickingSlot(s);
           setView('ROLE');
         }
 
         function confirmRole(roleIndex) {
-          if (!room || !socket) return;
+          if (!room) return;
 
+          // ✅ DUAL：同玩家兩角色不可重複（前端先擋）
           if (room?.mode === 'DUAL') {
             const other = pickingSlot === 1 ? selectedRole2 : selectedRole1;
-            if (typeof other === 'number' && other === roleIndex) {
+            if (other === roleIndex) {
               alert('同一玩家的 角色1 / 角色2 不能重複');
               return;
             }
+          }
+
+          if (room?.mode === 'DUAL') {
             if (pickingSlot === 1) setSelectedRole1(roleIndex);
             else setSelectedRole2(roleIndex);
-
-            socket.emit(
-              'pickRole',
-              { roomId: room.id, roleIndex, slot: pickingSlot },
-              () => {}
-            );
           } else {
             setSelectedRole1(roleIndex);
             setSelectedRole2(null);
-            socket.emit('pickRole', { roomId: room.id, roleIndex }, () => {});
           }
+
+          socket.emit(
+            'pickRole',
+            room?.mode === 'DUAL'
+              ? { roomId: room.id, roleIndex, slot: pickingSlot }
+              : { roomId: room.id, roleIndex },
+            (res) => {
+              if (res.ok) setRoom(res.room);
+              else if (res?.message) alert(res.message);
+            }
+          );
 
           setView('ROOM');
         }
 
         function readyUp() {
-          if (!socket || !room) return;
           if (selectedColor === null) return alert('請先選擇顏色');
+
           if (room?.mode === 'DUAL') {
             if (selectedRole1 === null || selectedRole2 === null)
               return alert('DUAL 模式請先選擇 角色1 與 角色2');
           } else {
             if (selectedRole1 === null) return alert('請先選擇角色');
           }
+
           socket.emit('readyUp', { roomId: room.id }, (res) => {
-            if (!res?.ok && res?.message) alert(res.message);
+            if (!res.ok && res.message) alert(res.message);
           });
         }
 
         function startGame() {
-          if (!socket || !room) return;
           socket.emit('startGame', { roomId: room.id });
         }
 
@@ -1482,16 +1520,16 @@
         ]);
 
         function place(x, y) {
-          if (!room || !socket || room.status !== 'PLAYING') return;
+          if (!room || room.status !== 'PLAYING') return;
 
-          // Jeice flow
+          // ===== Jeice =====
           if (jeiceMode) {
             if (jeiceStep === 'place') {
               socket.emit('jeicePlace', { roomId: room.id, x, y }, (res) => {
                 if (res?.ok) {
                   setHighlightJeiceSource({ x, y });
 
-                  // optimistic
+                  // optimistic render
                   try {
                     const r0 = roomRef.current || room;
                     const myIdx = (r0?.players || []).findIndex(
@@ -1525,8 +1563,9 @@
                     msg.includes('房間不存在') ||
                     msg.includes('遊戲未開始') ||
                     msg.includes('尚未輪到你')
-                  )
+                  ) {
                     cancelJeice();
+                  }
                 }
               });
               return;
@@ -1536,10 +1575,12 @@
               const inTargets = highlightJeiceTargets.some(
                 (p) => p.x === x && p.y === y
               );
+
               if (!inTargets) {
                 cancelJeice();
                 return;
               }
+
               socket.emit(
                 'jeiceSelectTarget',
                 { roomId: room.id, x, y },
@@ -1555,7 +1596,7 @@
             }
           }
 
-          // Ginyu flow
+          // ===== 基紐 =====
           if (ginyuMode) {
             const inSources = highlightSources.some(
               (p) => p.x === x && p.y === y
@@ -1607,9 +1648,10 @@
             return;
           }
 
-          // Gudo flow
+          // ===== 古杜 =====
           if (gudoMode) {
             const localRoom = roomRef.current || room;
+
             if (
               !localRoom.gudoClientStep ||
               localRoom.gudoClientStep === 'idle'
@@ -1668,14 +1710,13 @@
             }
           }
 
-          // Normal place
+          // ===== 一般落子 =====
           socket.emit('place', { roomId: room.id, x, y }, (res) => {
             if (!res.ok && res.message) alert(res.message);
           });
         }
 
         function activateGinyu() {
-          if (!socket || !room) return;
           socket.emit('ginyuAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGinyuMode(true);
@@ -1685,7 +1726,6 @@
         }
 
         function activateGudo() {
-          if (!socket || !room) return;
           socket.emit('gudoAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGudoMode(true);
@@ -1698,14 +1738,15 @@
         }
 
         function activateJeice() {
-          if (!socket || !room) return;
           socket.emit('jeiceAbilityStart', { roomId: room.id }, (res) => {
             if (res?.ok) {
               setJeiceMode(true);
               setJeiceStep('place');
               setHighlightJeiceTargets([]);
               setHighlightJeiceSource(null);
-            } else alert(res?.message || '無法發動吉斯能力');
+            } else {
+              alert(res?.message || '無法發動吉斯能力');
+            }
           });
         }
 
@@ -1723,7 +1764,6 @@
 
         const canStart =
           room &&
-          room.status === 'LOBBY' &&
           room.hostId === socket?.id &&
           room.players &&
           room.players.length > 0 &&
@@ -1733,13 +1773,7 @@
           ? postGame.finalBoard
           : board;
 
-        // ✅ 終局棋盤：固定棋子外觀（避免別人改角色影響你看到的終局）
-        const playersForBoard =
-          postGame?.playersSnap && Array.isArray(postGame.playersSnap)
-            ? postGame.playersSnap
-            : room?.players || [];
-        const modeForBoard = postGame?.modeSnap || room?.mode;
-
+        // ======= UI =======
         const inRoom = !!room?.id;
 
         return e(
@@ -1798,7 +1832,7 @@
             e('div', { className: 'pill' }, socket?.id ? `你已連線` : '連線中…')
           ),
 
-          // ENTRY
+          // ===== ENTRY：只有未進房才顯示建立/加入 =====
           view === 'ENTRY' &&
             e(
               'div',
@@ -1821,7 +1855,7 @@
                       onClick: () => createRoom('SINGLE'),
                       disabled: !name.trim(),
                     },
-                    '建立房間：單角色模式'
+                    '建立房間：單人模式'
                   ),
                   e(
                     'button',
@@ -1829,7 +1863,7 @@
                       onClick: () => createRoom('DUAL'),
                       disabled: !name.trim(),
                     },
-                    '建立房間：雙角色模式'
+                    '建立房間：雙人模式'
                   ),
                   e(
                     'button',
@@ -1845,7 +1879,7 @@
               )
             ),
 
-          // ROOM
+          // ===== ROOM：房內 Lobby =====
           view === 'ROOM' &&
             inRoom &&
             e(
@@ -1858,121 +1892,127 @@
                 e(
                   'div',
                   { style: { fontWeight: 1000, marginBottom: 6 } },
-                  '房間（Lobby）'
+                  room?.status === 'LOBBY'
+                    ? '房間設定（Lobby）'
+                    : '房間（等待回到 Lobby…）'
                 ),
 
-                // ✅ 12181700 核心：不管狀態是 LOBBY / ENDED / PLAYING，都允許你先選下一局
                 room?.status !== 'LOBBY'
                   ? e(
                       'div',
                       { className: 'hint' },
-                      room?.status === 'ENDED'
-                        ? '賽後結算中（倒數後會自動回 Lobby 清空角色），你可以先選好顏色/角色，系統會在清空後自動幫你回填。'
-                        : '目前正在對局中，你也可以先調整下一局顏色/角色（不影響當局）。'
+                      '目前不在 Lobby 狀態（可能正在對局或賽後倒數），稍後會自動回到 Lobby 讓大家重選。'
                     )
                   : null,
 
-                e('div', { className: 'label' }, '顏色'),
-                e(
-                  'div',
-                  { className: 'rowWrap' },
-                  COLORS.map((c, i) =>
-                    e('div', {
-                      key: i,
-                      className: 'choice',
-                      onClick: () => pickColor(i),
-                      style: {
-                        background: c,
-                        outline:
-                          selectedColor === i
-                            ? '2px solid rgba(255,255,255,0.9)'
-                            : 'none',
-                      },
-                    })
-                  )
-                ),
-
-                e(
-                  'div',
-                  { className: 'label', style: { marginTop: 10 } },
-                  room?.mode === 'DUAL' ? '角色（DUAL：角色1 / 角色2）' : '角色'
-                ),
-
-                room?.mode === 'DUAL'
-                  ? e(
+                room?.status === 'LOBBY' &&
+                  e(
+                    React.Fragment,
+                    null,
+                    e('div', { className: 'label' }, '顏色'),
+                    e(
                       'div',
-                      { className: 'row', style: { flexWrap: 'wrap' } },
-                      e(
-                        'button',
-                        { onClick: () => openRoleSelect(1) },
-                        selectedRole1 === null
-                          ? '選擇角色1（全螢幕）'
-                          : `角色1：${ROLES[selectedRole1]?.name}（重選）`
-                      ),
-                      e(
-                        'button',
-                        { onClick: () => openRoleSelect(2) },
-                        selectedRole2 === null
-                          ? '選擇角色2（全螢幕）'
-                          : `角色2：${ROLES[selectedRole2]?.name}（重選）`
+                      { className: 'rowWrap' },
+                      COLORS.map((c, i) =>
+                        e('div', {
+                          key: i,
+                          className: 'choice',
+                          onClick: () => pickColor(i),
+                          style: {
+                            background: c,
+                            outline:
+                              selectedColor === i
+                                ? '2px solid rgba(255,255,255,0.9)'
+                                : 'none',
+                          },
+                        })
                       )
-                    )
-                  : e(
-                      'button',
-                      { onClick: () => openRoleSelect(1) },
-                      selectedRole1 === null
-                        ? '選擇角色（全螢幕）'
-                        : `已選：${ROLES[selectedRole1]?.name}（點我重選）`
                     ),
 
-                room?.mode === 'DUAL'
-                  ? e(
-                      React.Fragment,
-                      null,
-                      e(
-                        'div',
-                        { className: 'hint' },
-                        `角色1技能：${
-                          selectedRole1 !== null
-                            ? ROLES[selectedRole1]?.desc
-                            : '—'
-                        }`
-                      ),
-                      e(
-                        'div',
-                        { className: 'hint' },
-                        `角色2技能：${
-                          selectedRole2 !== null
-                            ? ROLES[selectedRole2]?.desc
-                            : '—'
-                        }`
-                      )
-                    )
-                  : selectedRole1 !== null &&
-                      e(
-                        'div',
-                        { className: 'hint' },
-                        `技能：${ROLES[selectedRole1]?.desc || ''}`
-                      ),
-
-                e(
-                  'div',
-                  { className: 'row', style: { marginTop: 10 } },
-                  e('button', { onClick: readyUp }, '準備完成'),
-                  canStart &&
                     e(
-                      'button',
-                      {
-                        onClick: startGame,
-                        style: {
-                          background:
-                            'linear-gradient(135deg, rgba(76,175,80,0.38), rgba(76,175,80,0.18))',
-                          border: '1px solid rgba(255,255,255,0.18)',
-                        },
-                      },
-                      'Start Game'
+                      'div',
+                      { className: 'label', style: { marginTop: 10 } },
+                      room?.mode === 'DUAL'
+                        ? '角色（DUAL：角色1 / 角色2）'
+                        : '角色'
+                    ),
+
+                    room?.mode === 'DUAL'
+                      ? e(
+                          'div',
+                          { className: 'row', style: { flexWrap: 'wrap' } },
+                          e(
+                            'button',
+                            { onClick: () => openRoleSelect(1) },
+                            selectedRole1 === null
+                              ? '選擇角色1（全螢幕）'
+                              : `角色1：${ROLES[selectedRole1]?.name}（重選）`
+                          ),
+                          e(
+                            'button',
+                            { onClick: () => openRoleSelect(2) },
+                            selectedRole2 === null
+                              ? '選擇角色2（全螢幕）'
+                              : `角色2：${ROLES[selectedRole2]?.name}（重選）`
+                          )
+                        )
+                      : e(
+                          'button',
+                          { onClick: () => openRoleSelect(1) },
+                          selectedRole1 === null
+                            ? '選擇角色（全螢幕）'
+                            : `已選：${ROLES[selectedRole1]?.name}（點我重選）`
+                        ),
+
+                    room?.mode === 'DUAL'
+                      ? e(
+                          React.Fragment,
+                          null,
+                          e(
+                            'div',
+                            { className: 'hint' },
+                            `角色1技能：${
+                              selectedRole1 !== null
+                                ? ROLES[selectedRole1]?.desc
+                                : '—'
+                            }`
+                          ),
+                          e(
+                            'div',
+                            { className: 'hint' },
+                            `角色2技能：${
+                              selectedRole2 !== null
+                                ? ROLES[selectedRole2]?.desc
+                                : '—'
+                            }`
+                          )
+                        )
+                      : selectedRole1 !== null &&
+                          e(
+                            'div',
+                            { className: 'hint' },
+                            `技能：${ROLES[selectedRole1]?.desc || ''}`
+                          ),
+
+                    e(
+                      'div',
+                      { className: 'row', style: { marginTop: 10 } },
+                      e('button', { onClick: readyUp }, '準備完成'),
+                      canStart &&
+                        e(
+                          'button',
+                          {
+                            onClick: startGame,
+                            style: {
+                              background:
+                                'linear-gradient(135deg, rgba(76,175,80,0.38), rgba(76,175,80,0.18))',
+                              border: '1px solid rgba(255,255,255,0.18)',
+                            },
+                          },
+                          'Start Game'
+                        )
                     )
-                )
+                  )
               ),
 
               e(
@@ -1991,7 +2031,9 @@
                         typeof p.roleIndex2 === 'number'
                           ? ROLES[p.roleIndex2]?.name
                           : null;
-                      roleText = `角色1：${r1 || '—'}｜角色2：${r2 || '—'}`;
+                      if (r1 || r2) {
+                        roleText = `角色1：${r1 || '—'}｜角色2：${r2 || '—'}`;
+                      }
                     } else {
                       const rn =
                         typeof p.roleIndex === 'number'
@@ -2036,7 +2078,7 @@
               )
             ),
 
-          // GAME
+          // ===== GAME =====
           view === 'GAME' &&
             e(
               'div',
@@ -2050,6 +2092,7 @@
                   '對局'
                 ),
 
+                // ✅ 回合資訊：顏色點 + 角色形狀
                 turnMeta
                   ? e(
                       'div',
@@ -2146,18 +2189,15 @@
                       )
                     : null
                 ),
-
-                jeiceMode
-                  ? e(
-                      'div',
-                      { className: 'hint', style: { marginTop: 8 } },
-                      jeiceStep === 'place'
-                        ? '吉斯：請點空格落子（落子後若有相鄰「非自己此角色」正常棋，可再點 1 顆擊退）'
-                        : '吉斯：點紅色虛線目標以擊退；點其他地方可放棄擊退（落子仍有效）'
-                    )
-                  : null
+                jeiceMode &&
+                  e(
+                    'div',
+                    { className: 'hint', style: { marginTop: 8 } },
+                    jeiceStep === 'place'
+                      ? '吉斯：請點空格落子（落子後若有相鄰「非自己此角色」正常棋，可再點 1 顆擊退）'
+                      : '吉斯：點紅色虛線目標以擊退；點其他地方可放棄擊退（落子仍有效）'
+                  )
               ),
-
               e(
                 'div',
                 { className: 'card boardWrap' },
@@ -2166,8 +2206,6 @@
                       board: boardToRender,
                       onPlace: place,
                       room,
-                      playersOverride: playersForBoard,
-                      modeOverride: modeForBoard,
                       highlightSources,
                       highlightTargets,
                       highlightGudo,
@@ -2181,7 +2219,7 @@
               )
             ),
 
-          // ROLE SCREEN
+          // ===== ROLE SCREEN =====
           view === 'ROLE' &&
             e(RoleSelectScreen, {
               room,
@@ -2202,32 +2240,31 @@
               onConfirm: confirmRole,
             }),
 
-          // PostGame Overlay：只有在 GAME 且未 dismissed 才顯示
-          postGame && view === 'GAME' && !postGameDismissed
-            ? e(
+          // ===== PostGame Overlay =====
+          postGame &&
+            e(
+              'div',
+              { className: 'postGame' },
+              e(
                 'div',
-                { className: 'postGame' },
+                { className: 'box' },
                 e(
                   'div',
-                  { className: 'box' },
-                  e(
-                    'div',
-                    { className: 'title' },
-                    `🏆 勝利者：${postGame.winnerName}`
-                  ),
-                  e(
-                    'div',
-                    { className: 'sub' },
-                    `棋局將在 ${postGame.secondsLeft} 秒後回到房間並重新選角（你也可以先返回房間選下一局）`
-                  ),
-                  e(
-                    'button',
-                    { className: 'btn', onClick: backToRoomEarly },
-                    '返回房間'
-                  )
+                  { className: 'title' },
+                  `🏆 勝利者：${postGame.winnerName}`
+                ),
+                e(
+                  'div',
+                  { className: 'sub' },
+                  `棋局將在 ${postGame.secondsLeft} 秒後回到房間並重新選角（可先按下方按鈕）`
+                ),
+                e(
+                  'button',
+                  { className: 'btn', onClick: backToRoom },
+                  '返回房間'
                 )
               )
-            : null
+            )
         );
       }
 
@@ -2243,6 +2280,7 @@
         const [current, setCurrent] = React.useState(
           typeof selectedRole === 'number' ? selectedRole : 0
         );
+
         const [lockedIndex, setLockedIndex] = React.useState(null);
 
         const [dragPx, setDragPx] = React.useState(0);
@@ -2256,7 +2294,22 @@
           v: 0,
           pointerId: null,
         });
+
         const snapPxRef = React.useRef(260);
+
+        React.useEffect(() => {
+          // ✅ 選角畫面開啟時：鎖 body scroll + 校正 viewport vars
+          const prevOverflow = document.body.style.overflow;
+          document.body.style.overflow = 'hidden';
+          setupVisualViewportVars();
+          const t = setTimeout(() => setupVisualViewportVars(), 0);
+
+          return () => {
+            clearTimeout(t);
+            document.body.style.overflow = prevOverflow;
+            setupVisualViewportVars();
+          };
+        }, []);
 
         React.useEffect(() => {
           function recalc() {
@@ -2363,6 +2416,7 @@
         });
 
         const role = ROLES[current];
+
         const snapPx = snapPxRef.current;
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
 
@@ -2463,8 +2517,9 @@
                       : 'rgba(255,255,255,0.12)',
                   };
 
-                  if (opacity === 0)
+                  if (opacity === 0) {
                     style.transform = `translate3d(${tx}%,0,0) scale(0.72)`;
+                  }
 
                   return e(
                     'div',
@@ -2595,7 +2650,7 @@
             { className: 'roleBottom' },
             e(
               'div',
-              { className: 'hint' },
+              { className: 'hint', style: { maxWidth: '48%' } },
               lockedIndex === null
                 ? `目前選擇：${role?.name || '—'}（桌機：點一下可鎖定）`
                 : `已鎖定：${role?.name || '—'}（可點其他卡改選）`
@@ -2623,8 +2678,6 @@
         board,
         onPlace,
         room,
-        playersOverride,
-        modeOverride,
         highlightSources,
         highlightTargets,
         highlightGudo,
@@ -2636,14 +2689,6 @@
       }) {
         const size = board.length;
         const cells = [];
-
-        const roomLike = {
-          ...(room || {}),
-          mode: modeOverride || room?.mode,
-          players: Array.isArray(playersOverride)
-            ? playersOverride
-            : room?.players,
-        };
 
         function isFxCell(pos, x, y) {
           return pos && pos.x === x && pos.y === y;
@@ -2664,6 +2709,7 @@
               className += ' highlight-gudo-target';
             if (highlightGudoSelf.some((p) => p.x === x && p.y === y))
               className += ' highlight-gudo-self';
+
             if (highlightJeiceTargets.some((p) => p.x === x && p.y === y))
               className += ' highlight-jeice-target';
             if (
@@ -2680,21 +2726,15 @@
 
             if (v > 0) {
               const { ownerIndex, slot } = decodeToken(v);
-              const player = roomLike.players?.[ownerIndex] || null;
-              const color =
-                player && typeof player.colorIndex === 'number'
-                  ? COLORS[player.colorIndex]
-                  : '#fff';
-              const roleIdx = getPlayerRoleIndex(roomLike, player, slot);
+              const player = room.players?.[ownerIndex] || null;
+              const color = player ? COLORS[player.colorIndex || 0] : '#fff';
+              const roleIdx = getPlayerRoleIndex(room, player, slot);
               const role = ROLES[typeof roleIdx === 'number' ? roleIdx : 0];
               inner = e('div', { className: role.shape, style: { color } });
             } else if (v < 0) {
               const ownerIndex = Math.abs(v) - 1;
-              const owner = roomLike.players?.[ownerIndex];
-              const baseColor =
-                owner && typeof owner.colorIndex === 'number'
-                  ? COLORS[owner.colorIndex]
-                  : '#888';
+              const owner = room.players?.[ownerIndex];
+              const baseColor = owner ? COLORS[owner.colorIndex || 0] : '#888';
               const r = Math.round(parseInt(baseColor.slice(1, 3), 16) * 0.6);
               const g = Math.round(parseInt(baseColor.slice(3, 5), 16) * 0.6);
               const b = Math.round(parseInt(baseColor.slice(5, 7), 16) * 0.6);
@@ -2723,7 +2763,12 @@
           const sy = from.y * cell + pad;
           const dx = (to.x - from.x) * cell;
           const dy = (to.y - from.y) * cell;
-          return { left: sx + 'px', top: sy + 'px', '--dx': dx, '--dy': dy };
+          return {
+            left: sx + 'px',
+            top: sy + 'px',
+            '--dx': dx,
+            '--dy': dy,
+          };
         }
 
         const fx1 = fx?.type === 'jeice' ? orbStyle(fx.from, fx.target) : null;
