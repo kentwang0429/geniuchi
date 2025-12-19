@@ -1327,28 +1327,41 @@
         async startLobby() {
           this._wantBgm = 'lobby';
           if (this.muted) return;
-          if (this.bgmKind === 'lobby') return;
+        
+          // ✅ 已經是 lobby：如果其實沒在播（paused/ended），就重試 play
+          if (this.bgmKind === 'lobby' && this.bgm) {
+            if (this.bgm.paused) await this._safePlay(this.bgm);
+            return;
+          }
         
           this.stopAllBgm();
-          this.bgmKind = 'lobby';
         
-          this.bgm = this._makeAudio(AUDIO_ASSETS.bgm_lobby, {
+          const a = this._makeAudio(AUDIO_ASSETS.bgm_lobby, {
             loop: true,
             volume: this.vol.bgm,
           });
         
-          const ok = await this._safePlay(this.bgm);
+          this.bgmKind = 'lobby';
+          this.bgm = a;
+        
+          const ok = await this._safePlay(a);
+        
+          // ✅ 若被 autoplay 擋住：清掉狀態，讓使用者點「啟用音效」後可以再試一次
           if (!ok) {
-            // ✅ autoplay 被擋住時：清掉狀態，避免之後永遠卡在 "lobby" 而不重播
-            this.stopAllBgm();
-            return;
+            this.bgmKind = null;
           }
         }
+
 
         async startBattle() {
           this._wantBgm = 'battle';
           if (this.muted) return;
-          if (this.bgmKind === 'battle') return;
+        
+          // ✅ 已經是 battle：如果其實沒在播就重試
+          if (this.bgmKind === 'battle' && this.bgm) {
+            if (this.bgm.paused) await this._safePlay(this.bgm);
+            return;
+          }
         
           this.stopAllBgm();
           this.bgmKind = 'battle';
@@ -1356,12 +1369,12 @@
           const introSrc = AUDIO_ASSETS.bgm_battle_intro;
           const loopSrc = AUDIO_ASSETS.bgm_battle_loop;
         
+          // ✅ 只有一首 loop
           if (!introSrc) {
             const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm });
             this.bgm = loop;
-        
             const ok = await this._safePlay(loop);
-            if (!ok) this.stopAllBgm();
+            if (!ok) this.bgmKind = null; // ✅ 失敗可重試
             return;
           }
         
@@ -1374,29 +1387,34 @@
           intro.addEventListener('ended', async () => {
             if (this.bgmKind !== 'battle' || this.muted) return;
             this.bgm = loop;
-            const ok2 = await this._safePlay(loop);
-            if (!ok2) this.stopAllBgm();
+            await this._safePlay(loop);
           });
         
           const ok = await this._safePlay(intro);
-          if (!ok) this.stopAllBgm();
+          if (!ok) {
+            // ✅ 被擋：清掉狀態，等使用者點擊後再播
+            this.bgmKind = null;
+          }
         }
 
         async startVictory() {
           this._wantBgm = 'victory';
           if (this.muted) return;
-          if (this.bgmKind === 'victory') return;
+        
+          if (this.bgmKind === 'victory' && this.bgm) {
+            if (this.bgm.paused) await this._safePlay(this.bgm);
+            return;
+          }
         
           this.stopAllBgm();
           this.bgmKind = 'victory';
-        
           this.bgm = this._makeAudio(AUDIO_ASSETS.sfx_victory, {
             loop: false,
             volume: 0.9,
           });
         
           const ok = await this._safePlay(this.bgm);
-          if (!ok) this.stopAllBgm();
+          if (!ok) this.bgmKind = null; // ✅ 失敗可重試
         }
 
         stopVictory() {
