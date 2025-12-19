@@ -214,28 +214,29 @@
         cursor: pointer;
       }
 
-      /* ===== 棋子形狀 ===== */
+      /* ===== 棋子形狀（改成吃 --piece） ===== */
       .circle {
-        width: 22px;
-        height: 22px;
+        width: var(--piece);
+        height: var(--piece);
         border-radius: 50%;
         background: currentColor;
       }
+
       .jeice {
         position: relative;
-        width: 22px;
-        height: 22px;
+        width: var(--piece);
+        height: var(--piece);
       }
       .jeice::before,
       .jeice::after {
         content: '';
         position: absolute;
-        top: 2px;
+        top: calc(var(--piece) * 0.08);
         left: 50%;
-        width: 6px;
-        height: 20px;
+        width: calc(var(--piece) * 0.26);
+        height: calc(var(--piece) * 0.92);
         background: currentColor;
-        border-radius: 6px;
+        border-radius: 999px;
         transform-origin: 50% 0%;
       }
       .jeice::before {
@@ -244,30 +245,34 @@
       .jeice::after {
         transform: translateX(-50%) rotate(-38deg);
       }
+
       .star::before {
         content: '★';
-        font-size: 26px;
+        font-size: calc(var(--piece) * 1.18);
         line-height: 1;
         color: currentColor;
       }
+
       .square {
-        width: 22px;
-        height: 22px;
+        width: var(--piece);
+        height: var(--piece);
         background: currentColor;
       }
+
       .triangle {
         width: 0;
         height: 0;
-        border-left: 11px solid transparent;
-        border-right: 11px solid transparent;
-        border-bottom: 20px solid currentColor;
+        border-left: calc(var(--piece) * 0.5) solid transparent;
+        border-right: calc(var(--piece) * 0.5) solid transparent;
+        border-bottom: calc(var(--piece) * 0.9) solid currentColor;
       }
+
       .logan {
         position: relative;
-        width: 16px;
-        height: 16px;
+        width: calc(var(--piece) * 0.72);
+        height: calc(var(--piece) * 0.72);
         border-radius: 50%;
-        border: 2px solid currentColor;
+        border: calc(var(--piece) * 0.11) solid currentColor;
       }
       .logan::before,
       .logan::after {
@@ -275,8 +280,8 @@
         position: absolute;
         top: 50%;
         left: 50%;
-        width: 30px;
-        height: 3px;
+        width: calc(var(--piece) * 1.25);
+        height: calc(var(--piece) * 0.14);
         background: currentColor;
         transform-origin: center;
       }
@@ -360,7 +365,7 @@
         background: rgba(255, 255, 255, 0.08);
       }
 
-      /* ===== Board ===== */
+      /* ===== Board（吃 --cell / --piece） ===== */
       .boardWrap {
         padding: 12px;
       }
@@ -371,13 +376,16 @@
         display: inline-block;
         border-radius: 14px;
         overflow: hidden;
+
+        --cell: 28px;
+        --piece: 22px;
       }
       .boardGrid {
         display: grid;
       }
       .cell {
-        width: 28px;
-        height: 28px;
+        width: var(--cell);
+        height: var(--cell);
         border: 1px solid rgba(255, 255, 255, 0.06);
         display: flex;
         align-items: center;
@@ -410,8 +418,8 @@
 
       .grayX {
         position: relative;
-        width: 22px;
-        height: 22px;
+        width: var(--piece);
+        height: var(--piece);
       }
       .grayX::before,
       .grayX::after {
@@ -419,8 +427,8 @@
         position: absolute;
         top: 50%;
         left: 50%;
-        width: 22px;
-        height: 4px;
+        width: var(--piece);
+        height: calc(var(--piece) * 0.18);
         background: currentColor;
         transform-origin: center;
       }
@@ -439,8 +447,8 @@
       }
       .jeiceOrb {
         position: absolute;
-        width: 22px;
-        height: 22px;
+        width: var(--piece);
+        height: var(--piece);
         border-radius: 50%;
         background: rgba(255, 40, 40, 0.92);
         filter: drop-shadow(0 0 10px rgba(255, 40, 40, 0.75));
@@ -450,7 +458,7 @@
       .jeiceOrb::after {
         content: '';
         position: absolute;
-        inset: -10px;
+        inset: calc(var(--piece) * -0.45);
         border-radius: 50%;
         background: radial-gradient(
           circle,
@@ -883,6 +891,103 @@
         background: rgba(255, 255, 255, 0.12);
         border: 1px solid rgba(255, 255, 255, 0.16);
       }
+
+      /* =========================================================
+         ✅ 手機棋局固定版面：棋盤上方 / 資訊下方 Dock
+         ========================================================= */
+      .gameShell {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: var(--vv-top);
+        height: var(--vvh);
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        padding: 12px;
+        padding-top: calc(10px + env(safe-area-inset-top));
+        padding-bottom: calc(12px + env(safe-area-inset-bottom) + var(--vv-bottom));
+        gap: 10px;
+      }
+
+      .gameBoardArea {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .gameBoardCard {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        border-radius: 22px;
+      }
+
+      .gameDock {
+        width: 100%;
+        border-radius: 22px;
+        padding: 12px;
+        background: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0.22),
+          rgba(0, 0, 0, 0.35)
+        );
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.62);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+
+      .dockRow {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .dockLeft {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .dockRight {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .dockSmall {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .dockBtns {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      .dockHint {
+        margin-top: 8px;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.65);
+        line-height: 1.35;
+      }
+
+      /* ✅ 手機棋局時：把 topBar 隱藏，空間留給棋盤 */
+      .appRoot.isGameMobile .topBar {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -1014,6 +1119,10 @@
         root.style.setProperty('--vv-bottom', bottom + 'px');
       }
 
+      function clamp(v, a, b) {
+        return Math.max(a, Math.min(b, v));
+      }
+
       function App() {
         const [socket, setSocket] = React.useState(null);
 
@@ -1034,9 +1143,8 @@
         const [highlightSources, setHighlightSources] = React.useState([]);
         const [highlightTargets, setHighlightTargets] = React.useState([]);
         const [highlightGudo, setHighlightGudo] = React.useState([]);
-        const [highlightGudoTargets, setHighlightGudoTargets] = React.useState(
-          []
-        );
+        const [highlightGudoTargets, setHighlightGudoTargets] =
+          React.useState([]);
         const [highlightGudoSelf, setHighlightGudoSelf] = React.useState([]);
 
         const [highlightJeiceTargets, setHighlightJeiceTargets] =
@@ -1068,6 +1176,29 @@
         // ✅ Jeice auto-start guard
         const jeiceAutoKeyRef = React.useRef(null);
 
+        // ✅ viewport state：給手機棋盤計算格子大小用
+        const [vp, setVp] = React.useState(() => {
+          const vv = window.visualViewport;
+          return {
+            w: Math.round(vv?.width || window.innerWidth || 360),
+            h: Math.round(vv?.height || window.innerHeight || 640),
+          };
+        });
+
+        React.useEffect(() => {
+          postGameRef.current = postGame;
+        }, [postGame]);
+
+        const isCoarse = React.useMemo(() => {
+          try {
+            return !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+          } catch (e) {
+            return false;
+          }
+        }, [vp.w, vp.h]);
+
+        const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
+
         React.useEffect(() => {
           postGameRef.current = postGame;
         }, [postGame]);
@@ -1075,16 +1206,20 @@
         // ✅ socket 只連一次（避免玩家不存在）
         React.useEffect(() => {
           setupVisualViewportVars();
-          window.addEventListener('resize', setupVisualViewportVars);
+
+          const onResize = () => {
+            setupVisualViewportVars();
+            const vv = window.visualViewport;
+            setVp({
+              w: Math.round(vv?.width || window.innerWidth || 360),
+              h: Math.round(vv?.height || window.innerHeight || 640),
+            });
+          };
+
+          window.addEventListener('resize', onResize);
           if (window.visualViewport) {
-            window.visualViewport.addEventListener(
-              'resize',
-              setupVisualViewportVars
-            );
-            window.visualViewport.addEventListener(
-              'scroll',
-              setupVisualViewportVars
-            );
+            window.visualViewport.addEventListener('resize', onResize);
+            window.visualViewport.addEventListener('scroll', onResize);
           }
 
           const s = connectSocket();
@@ -1118,7 +1253,7 @@
               }
             } catch (e) {}
 
-            // ✅ postGame 期間：不覆蓋棋盤、不切 view（讓你繼續看終局）
+            // ✅ postGame 期間：不覆蓋棋盤、不切 view
             if (!postGameRef.current) {
               setBoard(r.board || []);
 
@@ -1240,16 +1375,10 @@
               s.disconnect();
             } catch (e) {}
 
-            window.removeEventListener('resize', setupVisualViewportVars);
+            window.removeEventListener('resize', onResize);
             if (window.visualViewport) {
-              window.visualViewport.removeEventListener(
-                'resize',
-                setupVisualViewportVars
-              );
-              window.visualViewport.removeEventListener(
-                'scroll',
-                setupVisualViewportVars
-              );
+              window.visualViewport.removeEventListener('resize', onResize);
+              window.visualViewport.removeEventListener('scroll', onResize);
             }
           };
         }, []);
@@ -1773,13 +1902,36 @@
           ? postGame.finalBoard
           : board;
 
+        const size = boardToRender?.length || 15;
+
+        // ✅ 手機：依可用高度計算 cellSize，棋盤盡量吃滿上方空間
+        const cellSize = React.useMemo(() => {
+          if (!isGameMobile) return 28;
+          const dockApprox = 230; // 估計下方 Dock 高度
+          const topAvailH = Math.max(220, vp.h - dockApprox);
+          const maxCellW = Math.floor((vp.w - 28) / size);
+          const maxCellH = Math.floor((topAvailH - 28) / size);
+          const c = Math.min(maxCellW, maxCellH);
+          return clamp(c, 22, 34);
+        }, [isGameMobile, vp.w, vp.h, size]);
+
+        const pieceSize = React.useMemo(() => {
+          // 與 CSS 內比例一致，避免太小或太大
+          return clamp(Math.round(cellSize * 0.78), 18, 28);
+        }, [cellSize]);
+
         // ======= UI =======
         const inRoom = !!room?.id;
 
+        // ✅ 讓 body 的 topBar 在手機對局時隱藏
+        const rootClass =
+          'appRoot' + (isGameMobile ? ' isGameMobile' : '');
+
         return e(
           'div',
-          { className: 'appRoot' },
+          { className: rootClass },
 
+          // ===== TopBar（手機對局會被 CSS 隱藏）=====
           e(
             'div',
             { className: 'topBar' },
@@ -2078,146 +2230,304 @@
               )
             ),
 
-          // ===== GAME =====
+          // ===== GAME（手機：固定上棋盤/下Dock）=====
           view === 'GAME' &&
-            e(
-              'div',
-              { className: 'screen grid' },
-              e(
-                'div',
-                { className: 'card panelPad' },
-                e(
+            (isGameMobile
+              ? e(
                   'div',
-                  { style: { fontWeight: 1000, marginBottom: 8 } },
-                  '對局'
-                ),
-
-                // ✅ 回合資訊：顏色點 + 角色形狀
-                turnMeta
-                  ? e(
+                  { className: 'gameShell' },
+                  e(
+                    'div',
+                    { className: 'gameBoardArea' },
+                    e(
                       'div',
-                      {
-                        className: 'pill turnPill',
-                        style: { display: 'inline-flex' },
-                      },
-                      e('div', {
-                        className: 'turnDot',
-                        style: { background: turnMeta.color },
-                      }),
+                      { className: 'card gameBoardCard' },
+                      boardToRender.length > 0
+                        ? e(Board, {
+                            board: boardToRender,
+                            onPlace: place,
+                            room,
+                            highlightSources,
+                            highlightTargets,
+                            highlightGudo,
+                            highlightGudoTargets,
+                            highlightGudoSelf,
+                            highlightJeiceTargets,
+                            highlightJeiceSource,
+                            fx,
+                            cellSize,
+                            pieceSize,
+                          })
+                        : e('div', null, '尚未開始遊戲')
+                    )
+                  ),
+                  e(
+                    'div',
+                    { className: 'gameDock' },
+
+                    // 房間/複製/退出
+                    e(
+                      'div',
+                      { className: 'dockRow' },
                       e(
                         'div',
-                        { className: 'turnIcon' },
-                        e('div', {
-                          className: turnMeta.shape || 'circle',
-                          style: { color: turnMeta.color },
-                        })
+                        { className: 'dockLeft' },
+                        e(
+                          'div',
+                          { className: 'pill' },
+                          `房間：${room?.id || '--'}`
+                        ),
+                        e(
+                          'button',
+                          {
+                            className: 'tinyBtn ' + (copied ? 'copied' : ''),
+                            onClick: onCopyRoomId,
+                          },
+                          copied ? '已複製' : '複製'
+                        )
                       ),
                       e(
                         'div',
-                        null,
+                        { className: 'dockRight' },
                         e(
-                          'div',
-                          { className: 'turnText' },
-                          `輪到：${turnMeta.playerName}`
-                        ),
-                        e(
-                          'div',
-                          { className: 'turnSub' },
-                          `回合：${turnMeta.round}｜角色${
-                            room?.mode === 'DUAL' ? turnMeta.slot : 1
-                          }：${turnMeta.roleName}`
+                          'button',
+                          { className: 'tinyBtn', onClick: leaveRoom },
+                          '退出房間'
                         )
                       )
-                    )
-                  : null,
+                    ),
 
+                    // 回合資訊
+                    turnMeta
+                      ? e(
+                          'div',
+                          {
+                            className: 'pill turnPill',
+                            style: { marginTop: 10, width: '100%' },
+                          },
+                          e('div', {
+                            className: 'turnDot',
+                            style: { background: turnMeta.color },
+                          }),
+                          e(
+                            'div',
+                            { className: 'turnIcon' },
+                            e('div', {
+                              className: turnMeta.shape || 'circle',
+                              style: { color: turnMeta.color },
+                            })
+                          ),
+                          e(
+                            'div',
+                            null,
+                            e(
+                              'div',
+                              { className: 'turnText' },
+                              `輪到：${turnMeta.playerName}`
+                            ),
+                            e(
+                              'div',
+                              { className: 'turnSub' },
+                              `回合：${turnMeta.round}｜角色${
+                                room?.mode === 'DUAL' ? turnMeta.slot : 1
+                              }：${turnMeta.roleName}`
+                            )
+                          )
+                        )
+                      : null,
+
+                    // 技能按鈕
+                    e(
+                      'div',
+                      { className: 'dockBtns' },
+                      isMyTurn && myActiveRoleIndex === 0
+                        ? e(
+                            'button',
+                            {
+                              onClick: activateGinyu,
+                              style: {
+                                background: 'rgba(156,39,176,0.35)',
+                              },
+                            },
+                            '基紐能力'
+                          )
+                        : null,
+                      isMyTurn && myActiveRoleIndex === 4
+                        ? e(
+                            'button',
+                            {
+                              onClick: activateGudo,
+                              style: { background: 'rgba(76,175,80,0.35)' },
+                            },
+                            '古杜能力'
+                          )
+                        : null,
+                      isMyTurn && myActiveRoleIndex === 5
+                        ? e(
+                            'button',
+                            {
+                              onClick: activateJeice,
+                              style: { background: 'rgba(255,40,40,0.30)' },
+                            },
+                            jeiceMode
+                              ? jeiceStep === 'place'
+                                ? '吉斯：請先落子'
+                                : '吉斯：選擊退目標'
+                              : '吉斯能力'
+                          )
+                        : null,
+                      isMyTurn && myActiveRoleIndex === 5 && jeiceMode
+                        ? e(
+                            'button',
+                            {
+                              onClick: cancelJeice,
+                              className: 'ghost',
+                            },
+                            '取消吉斯'
+                          )
+                        : null
+                    ),
+
+                    // 提示
+                    jeiceMode
+                      ? e(
+                          'div',
+                          { className: 'dockHint' },
+                          jeiceStep === 'place'
+                            ? '吉斯：點空格落子；落子後若相鄰有目標，再點 1 顆擊退。'
+                            : '吉斯：點紅色虛線目標擊退；點其他地方可放棄擊退（落子仍有效）。'
+                        )
+                      : e(
+                          'div',
+                          { className: 'dockHint' },
+                          '提示：點棋盤下子。需要能力時使用上方按鈕。'
+                        )
+                  )
+                )
+              : // 桌機：維持原本版面
                 e(
                   'div',
-                  {
-                    style: {
-                      marginTop: 10,
-                      display: 'flex',
-                      gap: 10,
-                      flexWrap: 'wrap',
-                    },
-                  },
-                  isMyTurn && myActiveRoleIndex === 0
-                    ? e(
-                        'button',
-                        {
-                          onClick: activateGinyu,
-                          style: { background: 'rgba(156,39,176,0.35)' },
-                        },
-                        '發動基紐能力'
-                      )
-                    : null,
-                  isMyTurn && myActiveRoleIndex === 4
-                    ? e(
-                        'button',
-                        {
-                          onClick: activateGudo,
-                          style: { background: 'rgba(76,175,80,0.35)' },
-                        },
-                        '發動古杜能力'
-                      )
-                    : null,
-                  isMyTurn && myActiveRoleIndex === 5
-                    ? e(
-                        'button',
-                        {
-                          onClick: activateJeice,
-                          style: { background: 'rgba(255,40,40,0.30)' },
-                        },
-                        jeiceMode
-                          ? jeiceStep === 'place'
-                            ? '吉斯：請先落子'
-                            : '吉斯：選擇擊退目標'
-                          : '發動吉斯能力'
-                      )
-                    : null,
-                  isMyTurn && myActiveRoleIndex === 5 && jeiceMode
-                    ? e(
-                        'button',
-                        {
-                          onClick: cancelJeice,
-                          style: {
-                            background: 'rgba(255,255,255,0.10)',
-                            border: '1px solid rgba(255,255,255,0.18)',
-                          },
-                        },
-                        '取消吉斯'
-                      )
-                    : null
-                ),
-                jeiceMode &&
+                  { className: 'screen grid' },
                   e(
                     'div',
-                    { className: 'hint', style: { marginTop: 8 } },
-                    jeiceStep === 'place'
-                      ? '吉斯：請點空格落子（落子後若有相鄰「非自己此角色」正常棋，可再點 1 顆擊退）'
-                      : '吉斯：點紅色虛線目標以擊退；點其他地方可放棄擊退（落子仍有效）'
+                    { className: 'card panelPad' },
+                    e(
+                      'div',
+                      { style: { fontWeight: 1000, marginBottom: 8 } },
+                      '對局'
+                    ),
+                    turnMeta
+                      ? e(
+                          'div',
+                          {
+                            className: 'pill turnPill',
+                            style: { display: 'inline-flex' },
+                          },
+                          e('div', {
+                            className: 'turnDot',
+                            style: { background: turnMeta.color },
+                          }),
+                          e(
+                            'div',
+                            { className: 'turnIcon' },
+                            e('div', {
+                              className: turnMeta.shape || 'circle',
+                              style: { color: turnMeta.color },
+                            })
+                          ),
+                          e(
+                            'div',
+                            null,
+                            e(
+                              'div',
+                              { className: 'turnText' },
+                              `輪到：${turnMeta.playerName}`
+                            ),
+                            e(
+                              'div',
+                              { className: 'turnSub' },
+                              `回合：${turnMeta.round}｜角色${
+                                room?.mode === 'DUAL' ? turnMeta.slot : 1
+                              }：${turnMeta.roleName}`
+                            )
+                          )
+                        )
+                      : null,
+                    e(
+                      'div',
+                      {
+                        style: {
+                          marginTop: 10,
+                          display: 'flex',
+                          gap: 10,
+                          flexWrap: 'wrap',
+                        },
+                      },
+                      isMyTurn && myActiveRoleIndex === 0
+                        ? e(
+                            'button',
+                            {
+                              onClick: activateGinyu,
+                              style: { background: 'rgba(156,39,176,0.35)' },
+                            },
+                            '發動基紐能力'
+                          )
+                        : null,
+                      isMyTurn && myActiveRoleIndex === 4
+                        ? e(
+                            'button',
+                            {
+                              onClick: activateGudo,
+                              style: { background: 'rgba(76,175,80,0.35)' },
+                            },
+                            '發動古杜能力'
+                          )
+                        : null,
+                      isMyTurn && myActiveRoleIndex === 5
+                        ? e(
+                            'button',
+                            {
+                              onClick: activateJeice,
+                              style: { background: 'rgba(255,40,40,0.30)' },
+                            },
+                            jeiceMode
+                              ? jeiceStep === 'place'
+                                ? '吉斯：請先落子'
+                                : '吉斯：選擇擊退目標'
+                              : '發動吉斯能力'
+                          )
+                        : null,
+                      isMyTurn && myActiveRoleIndex === 5 && jeiceMode
+                        ? e(
+                            'button',
+                            { onClick: cancelJeice, className: 'ghost' },
+                            '取消吉斯'
+                          )
+                        : null
+                    )
+                  ),
+                  e(
+                    'div',
+                    { className: 'card boardWrap' },
+                    boardToRender.length > 0
+                      ? e(Board, {
+                          board: boardToRender,
+                          onPlace: place,
+                          room,
+                          highlightSources,
+                          highlightTargets,
+                          highlightGudo,
+                          highlightGudoTargets,
+                          highlightGudoSelf,
+                          highlightJeiceTargets,
+                          highlightJeiceSource,
+                          fx,
+                          cellSize: 28,
+                          pieceSize: 22,
+                        })
+                      : e('div', null, '尚未開始遊戲')
                   )
-              ),
-              e(
-                'div',
-                { className: 'card boardWrap' },
-                boardToRender.length > 0
-                  ? e(Board, {
-                      board: boardToRender,
-                      onPlace: place,
-                      room,
-                      highlightSources,
-                      highlightTargets,
-                      highlightGudo,
-                      highlightGudoTargets,
-                      highlightGudoSelf,
-                      highlightJeiceTargets,
-                      highlightJeiceSource,
-                      fx,
-                    })
-                  : e('div', null, '尚未開始遊戲')
-              )
-            ),
+                )),
 
           // ===== ROLE SCREEN =====
           view === 'ROLE' &&
@@ -2298,7 +2608,6 @@
         const snapPxRef = React.useRef(260);
 
         React.useEffect(() => {
-          // ✅ 選角畫面開啟時：鎖 body scroll + 校正 viewport vars
           const prevOverflow = document.body.style.overflow;
           document.body.style.overflow = 'hidden';
           setupVisualViewportVars();
@@ -2381,10 +2690,6 @@
           try {
             ev.currentTarget.releasePointerCapture(ev.pointerId);
           } catch (e) {}
-        }
-
-        function clamp(v, a, b) {
-          return Math.max(a, Math.min(b, v));
         }
 
         function shortDelta(i, c) {
@@ -2615,30 +2920,6 @@
                     blocked !== null && blocked === i
                       ? '（⚠️ 你的另一個角色已選這個，不能重複）'
                       : ''
-                  ),
-                  e(
-                    'div',
-                    { className: 'roleStats' },
-                    e(
-                      'div',
-                      { className: 'stat' },
-                      e('div', null, '定位'),
-                      e(
-                        'b',
-                        null,
-                        i === 1 || i === 5
-                          ? '進攻'
-                          : i === 0 || i === 4
-                          ? '操作'
-                          : '控制'
-                      )
-                    ),
-                    e(
-                      'div',
-                      { className: 'stat' },
-                      e('div', null, '回合'),
-                      e('b', null, i === 1 || i === 3 ? '多步' : '單步')
-                    )
                   )
                 );
               })
@@ -2686,6 +2967,8 @@
         highlightJeiceTargets,
         highlightJeiceSource,
         fx,
+        cellSize,
+        pieceSize,
       }) {
         const size = board.length;
         const cells = [];
@@ -2757,8 +3040,9 @@
 
         function orbStyle(from, to) {
           if (!from || !to) return null;
-          const cell = 28;
-          const pad = (cell - 22) / 2;
+          const cell = cellSize || 28;
+          const piece = pieceSize || 22;
+          const pad = (cell - piece) / 2;
           const sx = from.x * cell + pad;
           const sy = from.y * cell + pad;
           const dx = (to.x - from.x) * cell;
@@ -2775,14 +3059,20 @@
         const fx2 =
           fx?.type === 'jeice' && fx?.to ? orbStyle(fx.target, fx.to) : null;
 
+        const cell = cellSize || 28;
+        const piece = pieceSize || 22;
+
         return e(
           'div',
-          { className: 'board' },
+          {
+            className: 'board',
+            style: { '--cell': cell + 'px', '--piece': piece + 'px' },
+          },
           e(
             'div',
             {
               className: 'boardGrid',
-              style: { gridTemplateColumns: `repeat(${size}, 28px)` },
+              style: { gridTemplateColumns: `repeat(${size}, ${cell}px)` },
             },
             cells
           ),
