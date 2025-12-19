@@ -1,4 +1,11 @@
-// ================= gameManager.js (DUAL + role-token) =================
+// ================= gameManager.js (DUAL + role-token + SFX hooks) =================
+// ✅ 本檔新增：在既有 socket 事件不破壞的前提下，額外送出「音效提示」資料
+// - placed payload 會多帶：sfx: { key, by:{playerIndex,slot,roleIndex}, meta:{} }
+// - 也會額外廣播：io.to(roomId).emit('sfx', {...})（前端可選擇監聽）
+//
+// ⚠️ 你之後在 index.html 只要：
+// 1) 監聽 socket.on('sfx', ...) 或 socket.on('placed', payload => payload.sfx)
+// 2) 用 key 對應到你的音檔路徑即可（目前先當占位）
 
 class GameManager {
   constructor(io, rooms) {
@@ -7,6 +14,44 @@ class GameManager {
 
     // ✅ 與前端賽後倒數一致：10 秒後回 Lobby 並重選角
     this.POST_GAME_MS = 10500;
+
+    // ✅ 音效 key 占位：你之後只要用這些 key 對應到音檔即可
+    // - lobby_bgm / battle_bgm / victory
+    // - ui_click / role_hover_* / role_confirm
+    // - place_* / skill_*
+    this.SFX_KEYS = {
+      // BGM / Flow
+      LOBBY_BGM: 'bgm_lobby_chala',
+      BATTLE_BGM: 'bgm_battle',
+      VICTORY: 'sfx_victory_10s',
+
+      // UI
+      UI_CLICK: 'sfx_ui_click',
+      ROLE_CONFIRM: 'sfx_role_confirm',
+
+      // Role hover (角色被點到/滑到)
+      ROLE_HOVER_0: 'sfx_role_ginyu_name',
+      ROLE_HOVER_1: 'sfx_role_burter_name',
+      ROLE_HOVER_2: 'sfx_role_recoome_name',
+      ROLE_HOVER_3: 'sfx_role_logan_name',
+      ROLE_HOVER_4: 'sfx_role_guldo_name',
+      ROLE_HOVER_5: 'sfx_role_jeice_name',
+
+      // Place
+      PLACE_GINYU: 'sfx_place_ginyu',
+      PLACE_BURTER_1: 'sfx_place_burter_1',
+      PLACE_BURTER_2: 'sfx_place_burter_2',
+      PLACE_RECOOME: 'sfx_place_recoome_slam',
+      PLACE_LOGAN: 'sfx_place_logan',
+      PLACE_LOGAN_CROSS: 'sfx_place_logan_cross',
+      PLACE_GULDO: 'sfx_place_guldo',
+      PLACE_JEICE: 'sfx_place_jeice',
+
+      // Skills
+      SKILL_GINYU_SWAP: 'sfx_skill_ginyu_swap',
+      SKILL_GULDO: 'sfx_skill_guldo',
+      SKILL_JEICE: 'sfx_skill_jeice',
+    };
 
     this.roleAbilities = {
       0: {
@@ -84,6 +129,7 @@ class GameManager {
     };
   }
 
+  // ================= Utils =================
   createEmptyBoard(size) {
     return Array.from({ length: size }, () => Array(size).fill(0));
   }
@@ -110,9 +156,53 @@ class GameManager {
     return player.roleIndex;
   }
 
+  _emitPlaced(roomId, room, extra = {}) {
+    this.io.to(roomId).emit('placed', {
+      board: room.board,
+      turnIndex: room.turnIndex,
+      turnSlot: room.turnSlot || 1,
+      roundCount: room.roundCount,
+      status: room.status,
+      ...extra,
+    });
+  }
+
+  // ✅ 額外音效事件（前端可選擇監聽）
+  _emitSfx(roomId, sfx) {
+    try {
+      this.io.to(roomId).emit('sfx', sfx);
+    } catch (e) {}
+  }
+
+  _sfxForPlace(roleIndex, placedThisTurnBefore) {
+    // placedThisTurnBefore：落子前的 placedThisTurn（0=第一步，1=第二步）
+    switch (roleIndex) {
+      case 0:
+        return this.SFX_KEYS.PLACE_GINYU;
+      case 1:
+        return placedThisTurnBefore === 0
+          ? this.SFX_KEYS.PLACE_BURTER_1
+          : this.SFX_KEYS.PLACE_BURTER_2;
+      case 2:
+        return this.SFX_KEYS.PLACE_RECOOME;
+      case 3:
+        return placedThisTurnBefore === 0
+          ? this.SFX_KEYS.PLACE_LOGAN
+          : this.SFX_KEYS.PLACE_LOGAN_CROSS;
+      case 4:
+        return this.SFX_KEYS.PLACE_GULDO;
+      case 5:
+        return this.SFX_KEYS.PLACE_JEICE;
+      default:
+        return this.SFX_KEYS.UI_CLICK;
+    }
+  }
+
+  // ================= Game Flow =================
   startGame(roomId) {
     const room = this.rooms[roomId];
     if (!room) return;
+
     room.status = 'PLAYING';
     room.turnIndex = 0;
     room.turnSlot = room.mode === 'DUAL' ? 1 : 1;
@@ -132,11 +222,19 @@ class GameManager {
     });
 
     this.io.to(roomId).emit('roomUpdated', room);
+
+    // ✅ BGM：通知前端切到戰鬥音樂（占位 key）
+    this._emitSfx(roomId, {
+      key: this.SFX_KEYS.BATTLE_BGM,
+      scope: 'bgm',
+      action: 'start',
+    });
   }
 
   restartGame(roomId) {
     const room = this.rooms[roomId];
     if (!room) return;
+
     room.status = 'LOBBY';
     room.board = this.createEmptyBoard(room.boardSize || 15);
     room.ginyuState = null;
@@ -164,8 +262,16 @@ class GameManager {
     });
 
     this.io.to(roomId).emit('roomUpdated', room);
+
+    // ✅ 回 Lobby：通知前端恢復主題曲（占位 key）
+    this._emitSfx(roomId, {
+      key: this.SFX_KEYS.LOBBY_BGM,
+      scope: 'bgm',
+      action: 'start',
+    });
   }
 
+  // ================= Normal Place =================
   placePiece(socket, data, cb) {
     const { roomId, x, y } = data;
     const room = this.rooms[roomId];
@@ -192,19 +298,24 @@ class GameManager {
     const board = room.board;
     const token = this._tokenOf(playerIndex, slot);
 
+    // ✅ 用於音效判斷（巴特/羅根需要知道是第幾步）
+    const placedThisTurnBefore = player.placedThisTurn || 0;
+
     try {
       if (roleIndex === 3) {
-        role.place(board, x, y, token, playerIndex, player.placedThisTurn);
+        role.place(board, x, y, token, playerIndex, placedThisTurnBefore);
       } else {
         role.place(board, x, y, token);
       }
-      player.placedThisTurn++;
+      player.placedThisTurn = placedThisTurnBefore + 1;
     } catch (err) {
       return cb({ ok: false, message: err.message });
     }
 
     const targetN = roleIndex === 1 ? 6 : room.targetN;
     const win = this.checkWinner(board, x, y, token, targetN);
+
+    const placeSfxKey = this._sfxForPlace(roleIndex, placedThisTurnBefore);
 
     if (win) {
       player.wins = (player.wins || 0) + 1;
@@ -213,31 +324,61 @@ class GameManager {
       room.gudoState = null;
       room.jeiceState = null;
 
-      this.io.to(roomId).emit('placed', {
-        board,
+      // ✅ 勝利音效（10 秒）
+      const victorySfx = {
+        key: this.SFX_KEYS.VICTORY,
+        scope: 'sfx',
+        action: 'play',
+        meta: { durationMs: 10000 },
+      };
+
+      this._emitPlaced(roomId, room, {
         win: { winnerIndex: playerIndex, winnerId: player.id },
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
+        sfx: {
+          key: placeSfxKey,
+          by: { playerIndex, slot, roleIndex },
+          meta: { x, y, step: placedThisTurnBefore },
+        },
+        // 額外附一個 victory（前端可選擇只用 sfx 或用 sfx2）
+        sfx2: victorySfx,
       });
+
+      // 也額外送出 sfx event（前端可選擇監聽）
+      this._emitSfx(roomId, {
+        key: placeSfxKey,
+        scope: 'sfx',
+        action: 'play',
+        by: { playerIndex, slot, roleIndex },
+        meta: { x, y, step: placedThisTurnBefore },
+      });
+      this._emitSfx(roomId, victorySfx);
 
       // ✅ 延後 10 秒後回 Lobby（但不清空顏色/角色，允許先預選）
       setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
       return cb({ ok: true, win: true });
     }
 
+    // 非勝利：先廣播落子音效
+    this._emitSfx(roomId, {
+      key: placeSfxKey,
+      scope: 'sfx',
+      action: 'play',
+      by: { playerIndex, slot, roleIndex },
+      meta: { x, y, step: placedThisTurnBefore },
+    });
+
     if (player.placedThisTurn >= role.maxMoves) {
       this._advanceTurn(room);
     }
 
-    this.io.to(roomId).emit('placed', {
-      board,
-      turnIndex: room.turnIndex,
-      turnSlot: room.turnSlot || 1,
-      roundCount: room.roundCount,
-      status: room.status,
+    this._emitPlaced(roomId, room, {
+      sfx: {
+        key: placeSfxKey,
+        by: { playerIndex, slot, roleIndex },
+        meta: { x, y, step: placedThisTurnBefore },
+      },
     });
+
     cb({ ok: true });
   }
 
@@ -282,17 +423,12 @@ class GameManager {
     }
   }
 
+  // ================= Ginyu =================
   emitGinyuCancelled(socket, roomId, message) {
     this.io.to(socket.id).emit('ginyuCancelled', { message });
     const room = this.rooms[roomId];
     if (room) {
-      this.io.to(roomId).emit('placed', {
-        board: room.board,
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
-      });
+      this._emitPlaced(roomId, room);
     }
   }
 
@@ -383,6 +519,14 @@ class GameManager {
       source: null,
       targets: [],
     };
+
+    // ✅ 技能音效（開始）——占位
+    this._emitSfx(roomId, {
+      key: this.SFX_KEYS.SKILL_GINYU_SWAP,
+      scope: 'sfx',
+      action: 'prime',
+      by: { playerIndex, slot, roleIndex },
+    });
 
     cb({ ok: true, sources });
   }
@@ -495,33 +639,45 @@ class GameManager {
     player.usedGinyuThisTurn = true;
     room.ginyuState = null;
 
+    // ✅ 交換音效（所有人聽到）
+    const swapSfx = {
+      key: this.SFX_KEYS.SKILL_GINYU_SWAP,
+      scope: 'sfx',
+      action: 'play',
+      by: { playerIndex, slot, roleIndex },
+      meta: { from: { x: sx, y: sy }, to: { x, y } },
+    };
+    this._emitSfx(roomId, swapSfx);
+
     const winner = this.checkBoardForAnyWinner(room);
     if (winner !== null) {
       const winPlayer = room.players[winner];
       winPlayer.wins = (winPlayer.wins || 0) + 1;
       room.status = 'ENDED';
-      this.io.to(room.id).emit('placed', {
-        board,
+
+      const victorySfx = {
+        key: this.SFX_KEYS.VICTORY,
+        scope: 'sfx',
+        action: 'play',
+        meta: { durationMs: 10000 },
+      };
+
+      this._emitPlaced(room.id, room, {
         win: { winnerIndex: winner, winnerId: winPlayer.id },
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
+        sfx: swapSfx,
+        sfx2: victorySfx,
       });
+
+      this._emitSfx(room.id, victorySfx);
       setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
       return cb({ ok: true, win: true });
     }
 
-    this.io.to(roomId).emit('placed', {
-      board,
-      turnIndex: room.turnIndex,
-      turnSlot: room.turnSlot || 1,
-      roundCount: room.roundCount,
-      status: room.status,
-    });
+    this._emitPlaced(roomId, room, { sfx: swapSfx });
     cb({ ok: true });
   }
 
+  // ================= Guldo =================
   gudoAbilityStart(socket, data, cb) {
     const { roomId } = data;
     const room = this.rooms[roomId];
@@ -567,6 +723,15 @@ class GameManager {
       target: null,
       emptyAround: [],
     };
+
+    // ✅ 技能音效（開始）——占位
+    this._emitSfx(roomId, {
+      key: this.SFX_KEYS.SKILL_GULDO,
+      scope: 'sfx',
+      action: 'prime',
+      by: { playerIndex, slot, roleIndex },
+    });
+
     cb({ ok: true, sources });
   }
 
@@ -709,6 +874,8 @@ class GameManager {
       return cb({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
 
     const state = room.gudoState;
     if (!state || state.playerIndex !== playerIndex || !state.target)
@@ -737,44 +904,49 @@ class GameManager {
     player.usedGudoThisTurn = true;
     room.gudoState = null;
 
+    const moveSfx = {
+      key: this.SFX_KEYS.SKILL_GULDO,
+      scope: 'sfx',
+      action: 'play',
+      by: { playerIndex, slot, roleIndex },
+      meta: { from: targetPiece, to: { x, y } },
+    };
+    this._emitSfx(roomId, moveSfx);
+
     const winner = this.checkBoardForAnyWinner(room);
     if (winner !== null) {
       const winPlayer = room.players[winner];
       winPlayer.wins = (winPlayer.wins || 0) + 1;
       room.status = 'ENDED';
-      this.io.to(room.id).emit('placed', {
-        board: room.board,
+
+      const victorySfx = {
+        key: this.SFX_KEYS.VICTORY,
+        scope: 'sfx',
+        action: 'play',
+        meta: { durationMs: 10000 },
+      };
+
+      this._emitPlaced(room.id, room, {
         win: { winnerIndex: winner, winnerId: winPlayer.id },
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
+        sfx: moveSfx,
+        sfx2: victorySfx,
       });
+
+      this._emitSfx(room.id, victorySfx);
       setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
       return cb({ ok: true, win: true });
     }
 
-    this.io.to(roomId).emit('placed', {
-      board: room.board,
-      turnIndex: room.turnIndex,
-      turnSlot: room.turnSlot || 1,
-      roundCount: room.roundCount,
-      status: room.status,
-    });
+    this._emitPlaced(roomId, room, { sfx: moveSfx });
     cb({ ok: true });
   }
 
+  // ================= Jeice =================
   emitJeiceCancelled(socket, roomId, message) {
     this.io.to(socket.id).emit('jeiceCancelled', { message });
     const room = this.rooms[roomId];
     if (room) {
-      this.io.to(roomId).emit('placed', {
-        board: room.board,
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
-      });
+      this._emitPlaced(roomId, room);
     }
   }
 
@@ -810,6 +982,14 @@ class GameManager {
       placed: null,
       targets: [],
     };
+
+    // ✅ 技能音效（開始）——占位
+    this._emitSfx(roomId, {
+      key: this.SFX_KEYS.SKILL_JEICE,
+      scope: 'sfx',
+      action: 'prime',
+      by: { playerIndex, slot, roleIndex },
+    });
 
     cb({ ok: true });
   }
@@ -851,6 +1031,16 @@ class GameManager {
       return cb({ ok: false, message: err.message });
     }
 
+    // ✅ 吉斯落子音效
+    const placeSfx = {
+      key: this.SFX_KEYS.PLACE_JEICE,
+      scope: 'sfx',
+      action: 'play',
+      by: { playerIndex, slot: state.slot, roleIndex: 5 },
+      meta: { x, y },
+    };
+    this._emitSfx(roomId, placeSfx);
+
     const selfToken = state.selfToken;
     const targets = [];
 
@@ -880,31 +1070,31 @@ class GameManager {
       if (win) {
         player.wins = (player.wins || 0) + 1;
         room.status = 'ENDED';
-        this.io.to(roomId).emit('placed', {
-          board,
+
+        const victorySfx = {
+          key: this.SFX_KEYS.VICTORY,
+          scope: 'sfx',
+          action: 'play',
+          meta: { durationMs: 10000 },
+        };
+
+        this._emitPlaced(roomId, room, {
           win: { winnerIndex: playerIndex, winnerId: player.id },
-          turnIndex: room.turnIndex,
-          turnSlot: room.turnSlot || 1,
-          roundCount: room.roundCount,
-          status: room.status,
+          sfx: placeSfx,
+          sfx2: victorySfx,
         });
+
+        this._emitSfx(roomId, victorySfx);
         setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
         return cb({ ok: true, targets: [], win: true });
       }
 
       this._advanceTurn(room);
-
-      this.io.to(roomId).emit('placed', {
-        board,
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
-      });
-
+      this._emitPlaced(roomId, room, { sfx: placeSfx });
       return cb({ ok: true, targets: [] });
     }
 
+    // ✅ 這裡不廣播 placed（因為前端會先 optimistic render），等選/取消後再廣播
     cb({ ok: true, targets });
   }
 
@@ -984,25 +1174,36 @@ class GameManager {
 
     room.jeiceState = null;
 
+    const jeiceSkillSfx = {
+      key: this.SFX_KEYS.SKILL_JEICE,
+      scope: 'sfx',
+      action: 'play',
+      by: { playerIndex, slot: state.slot, roleIndex: 5 },
+      meta: { from, target: { x, y }, to: pushedTo },
+    };
+    this._emitSfx(roomId, jeiceSkillSfx);
+
     const winner = this.checkBoardForAnyWinner(room);
     if (winner !== null) {
       const winPlayer = room.players[winner];
       winPlayer.wins = (winPlayer.wins || 0) + 1;
       room.status = 'ENDED';
-      this.io.to(room.id).emit('placed', {
-        board: room.board,
+
+      const victorySfx = {
+        key: this.SFX_KEYS.VICTORY,
+        scope: 'sfx',
+        action: 'play',
+        meta: { durationMs: 10000 },
+      };
+
+      this._emitPlaced(room.id, room, {
         win: { winnerIndex: winner, winnerId: winPlayer.id },
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
-        effect: {
-          type: 'jeice',
-          from,
-          target: { x, y },
-          to: pushedTo,
-        },
+        effect: { type: 'jeice', from, target: { x, y }, to: pushedTo },
+        sfx: jeiceSkillSfx,
+        sfx2: victorySfx,
       });
+
+      this._emitSfx(room.id, victorySfx);
       setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
       cb({ ok: true, win: true });
       return;
@@ -1010,18 +1211,9 @@ class GameManager {
 
     this._advanceTurn(room);
 
-    this.io.to(roomId).emit('placed', {
-      board: room.board,
-      turnIndex: room.turnIndex,
-      turnSlot: room.turnSlot || 1,
-      roundCount: room.roundCount,
-      status: room.status,
-      effect: {
-        type: 'jeice',
-        from,
-        target: { x, y },
-        to: pushedTo,
-      },
+    this._emitPlaced(roomId, room, {
+      effect: { type: 'jeice', from, target: { x, y }, to: pushedTo },
+      sfx: jeiceSkillSfx,
     });
 
     cb({ ok: true, pushedTo });
@@ -1054,13 +1246,7 @@ class GameManager {
         this._advanceTurn(room);
       }
 
-      this.io.to(roomId).emit('placed', {
-        board: room.board,
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
-      });
+      this._emitPlaced(roomId, room);
       return cb({ ok: true });
     }
 
@@ -1072,14 +1258,7 @@ class GameManager {
         .to(socket.id)
         .emit('jeiceCancelled', { message: '本回合不使用吉斯技能' });
 
-      this.io.to(roomId).emit('placed', {
-        board: room.board,
-        turnIndex: room.turnIndex,
-        turnSlot: room.turnSlot || 1,
-        roundCount: room.roundCount,
-        status: room.status,
-      });
-
+      this._emitPlaced(roomId, room);
       return cb({ ok: true });
     }
 
@@ -1088,17 +1267,12 @@ class GameManager {
 
     this._advanceTurn(room);
 
-    this.io.to(roomId).emit('placed', {
-      board: room.board,
-      turnIndex: room.turnIndex,
-      turnSlot: room.turnSlot || 1,
-      roundCount: room.roundCount,
-      status: room.status,
-    });
+    this._emitPlaced(roomId, room);
 
     return cb({ ok: true });
   }
 
+  // ================= Win Check =================
   checkBoardForAnyWinner(room) {
     const board = room.board;
     for (let y = 0; y < board.length; y++) {

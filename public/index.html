@@ -906,7 +906,9 @@
         flex-direction: column;
         padding: 12px;
         padding-top: calc(10px + env(safe-area-inset-top));
-        padding-bottom: calc(12px + env(safe-area-inset-bottom) + var(--vv-bottom));
+        padding-bottom: calc(
+          12px + env(safe-area-inset-bottom) + var(--vv-bottom)
+        );
         gap: 10px;
       }
 
@@ -963,11 +965,6 @@
         gap: 8px;
         align-items: center;
         flex-wrap: wrap;
-      }
-
-      .dockSmall {
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.75);
       }
 
       .dockBtns {
@@ -1123,6 +1120,328 @@
         return Math.max(a, Math.min(b, v));
       }
 
+      /* =========================================================
+         ✅ Audio 設定（你之後只要改檔名/替換音檔即可）
+         放音檔位置：public/audio/
+         ========================================================= */
+      const AUDIO_ASSETS = {
+        // ✅ 進網站 / Lobby 會播放（之後換 Cha-La Head-Cha-La）
+        bgm_lobby: 'audio/chala_head_chala.mp3',
+
+        // ✅ 進棋局：戰鬥音樂（單首 loop）
+        bgm_battle_intro: 'audio/fighting_music.mp3',
+        bgm_battle_loop: 'audio/fighting_music_all.mp3',
+
+        // ✅ 勝利音效（10秒保留棋盤期間播放；回房間會中斷）
+        sfx_victory: 'audio/sfx_victory_placeholder.mp3',
+
+        // ✅ UI按鈕共用
+        sfx_ui_click: 'audio/sfx_ui_click_placeholder.mp3',
+
+        // ✅ 角色喊名（桌機 hover / 手機滑到中心）
+        voice_role: {
+          0: 'audio/voice_ginyu_placeholder.mp3',
+          1: 'audio/voice_burter_placeholder.mp3',
+          2: 'audio/voice_recoome_placeholder.mp3',
+          3: 'audio/voice_logan_placeholder.mp3',
+          4: 'audio/voice_guldo_placeholder.mp3',
+          5: 'audio/voice_jeice_placeholder.mp3',
+        },
+
+        // ✅ 棋子互動音效（由 server 透過 socket emit key 觸發）
+        //    你換音效只要保留 key 不變、換檔名即可。
+        sfx_map: {
+          ginyu_place: 'audio/sfx_ginyu_place_placeholder.mp3',
+          ginyu_swap: 'audio/sfx_ginyu_swap_placeholder.mp3',
+
+          burter_place1: 'audio/sfx_burter_place1_placeholder.mp3',
+          burter_place2: 'audio/sfx_burter_place2_placeholder.mp3',
+
+          recoome_place: 'audio/sfx_recoome_place_placeholder.mp3',
+
+          logan_place: 'audio/sfx_logan_place_placeholder.mp3',
+          logan_cross: 'audio/sfx_logan_cross_placeholder.mp3',
+
+          gudo_place: 'audio/sfx_gudo_place_placeholder.mp3',
+          gudo_skill: 'audio/sfx_gudo_skill_placeholder.mp3',
+
+          jeice_place: 'audio/sfx_jeice_place_placeholder.mp3',
+          jeice_skill: 'audio/sfx_jeice_skill_placeholder.mp3',
+        },
+      };
+
+      class AudioMgr {
+        constructor({ onNeedGesture, onUnlocked } = {}) {
+          this.onNeedGesture =
+            typeof onNeedGesture === 'function' ? onNeedGesture : () => {};
+          this.onUnlocked =
+            typeof onUnlocked === 'function' ? onUnlocked : () => {};
+
+          this.unlocked = false;
+          // ✅ mute 狀態 + 記住目前應該播哪一種BGM
+          this.muted = false;
+          this._wantBgm = 'lobby'; // 'lobby' | 'battle' | 'victory'
+
+          this.bgm = null;
+          this.bgmKind = null; // 'lobby' | 'battle' | 'victory'
+          this.battleLoop = null;
+          this.voice = null;
+
+          // 你想調整音量可以改這裡
+          this.vol = {
+            bgm: 0.35,
+            sfx: 0.8,
+            voice: 0.95,
+          };
+
+          this._lastVoiceAt = 0;
+        }
+
+        _makeAudio(src, { loop = false, volume = 1 } = {}) {
+          const a = new Audio(src);
+          a.preload = 'auto';
+          a.loop = !!loop;
+          a.volume = clamp(volume, 0, 1);
+          a.muted = this.muted;
+          return a;
+        }
+
+        setMuted(m) {
+          this.muted = !!m;
+          const apply = (a) => {
+            if (!a) return;
+            a.muted = this.muted;
+            if (this.muted) {
+              try {
+                a.pause();
+              } catch (e) {}
+            }
+          };
+          apply(this.bgm);
+          apply(this.battleLoop);
+          apply(this.voice);
+        }
+
+        async unlock() {
+          if (this.unlocked) return true;
+          // 用「極短無聲」嘗試解鎖 autoplay
+          const silent = new Audio(
+            'data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA'
+          );
+          silent.volume = 0;
+          try {
+            await silent.play();
+            silent.pause();
+            this.unlocked = true;
+            this.onUnlocked();
+            return true;
+          } catch (e) {
+            this.unlocked = false;
+            this.onNeedGesture();
+            return false;
+          }
+        }
+
+        _isAutoplayBlocked(err) {
+          const name = err?.name || '';
+          const msg = String(err?.message || '').toLowerCase();
+          return (
+            name === 'NotAllowedError' ||
+            msg.includes('not allowed') ||
+            msg.includes('user gesture') ||
+            msg.includes('interact')
+          );
+        }
+
+        _maybeNeedGesture(err) {
+          if (this.unlocked) return;
+          if (this._isAutoplayBlocked(err)) this.onNeedGesture();
+        }
+
+        async _safePlay(a) {
+          if (!a) return false;
+          if (this.muted) return false;
+          try {
+            await a.play();
+            // ✅ 若瀏覽器允許 autoplay，這裡也視為已解鎖
+            if (!this.unlocked) {
+              this.unlocked = true;
+              this.onUnlocked();
+            }
+            return true;
+          } catch (err) {
+            this._maybeNeedGesture(err);
+            return false;
+          }
+        }
+
+        stopAllBgm() {
+          try {
+            if (this.bgm) {
+              this.bgm.pause();
+              this.bgm.currentTime = 0;
+            }
+          } catch (e) {}
+          try {
+            if (this.battleLoop) {
+              this.battleLoop.pause();
+              this.battleLoop.currentTime = 0;
+            }
+          } catch (e) {}
+          this.bgm = null;
+          this.battleLoop = null;
+          this.bgmKind = null;
+        }
+        setMuted(m) {
+          this.muted = !!m;
+
+          if (this.muted) {
+            this.stopAllBgm();
+            try {
+              if (this.voice) {
+                this.voice.pause();
+                this.voice.currentTime = 0;
+              }
+            } catch (e) {}
+            return;
+          }
+
+          // ✅ 解除靜音後：依最後想要的BGM狀態恢復
+          this.resumeWantedBgm();
+        }
+
+        async resumeWantedBgm() {
+          if (this.muted) return;
+
+          // 如果還沒解鎖，先嘗試解鎖（不成功就等使用者點 audioGate）
+          if (!this.unlocked) {
+            const ok = await this.unlock();
+            if (!ok) return;
+          }
+
+          if (this._wantBgm === 'victory') return this.startVictory();
+          if (this._wantBgm === 'battle') return this.startBattle();
+          return this.startLobby();
+        }
+
+        async startLobby() {
+          this._wantBgm = 'lobby';
+          if (this.muted) return;
+          if (this.bgmKind === 'lobby') return;
+          this.stopAllBgm();
+          this.bgmKind = 'lobby';
+          this.bgm = this._makeAudio(AUDIO_ASSETS.bgm_lobby, {
+            loop: true,
+            volume: this.vol.bgm,
+          });
+          await this._safePlay(this.bgm);
+        }
+
+        async startBattle() {
+          this._wantBgm = 'battle';
+          if (this.muted) return;
+          if (this.bgmKind === 'battle') return;
+          this.stopAllBgm();
+          this.bgmKind = 'battle';
+
+          const introSrc = AUDIO_ASSETS.bgm_battle_intro;
+          const loopSrc = AUDIO_ASSETS.bgm_battle_loop;
+
+          // ✅ 只有一首 loop
+          if (!introSrc) {
+            const loop = this._makeAudio(loopSrc, {
+              loop: true,
+              volume: this.vol.bgm,
+            });
+            this.bgm = loop;
+            await this._safePlay(loop);
+            return;
+          }
+
+          // ✅ intro -> loop
+          const intro = this._makeAudio(introSrc, {
+            loop: false,
+            volume: 0.6,
+          });
+          const loop = this._makeAudio(loopSrc, {
+            loop: true,
+            volume: this.vol.bgm,
+          });
+
+          this.bgm = intro;
+          this.battleLoop = loop;
+
+          intro.addEventListener('ended', async () => {
+            if (this.bgmKind !== 'battle' || this.muted) return;
+            this.bgm = loop;
+            await this._safePlay(loop);
+          });
+
+          const ok = await this._safePlay(intro);
+          if (!ok) return;
+        }
+
+        async startVictory() {
+          this._wantBgm = 'victory';
+          if (this.muted) return;
+          if (this.bgmKind === 'victory') return;
+          this.stopAllBgm();
+          this.bgmKind = 'victory';
+          this.bgm = this._makeAudio(AUDIO_ASSETS.sfx_victory, {
+            loop: false,
+            volume: 0.9,
+          });
+          await this._safePlay(this.bgm);
+        }
+
+        stopVictory() {
+          if (this.bgmKind !== 'victory') return;
+          this.stopAllBgm();
+        }
+
+        uiClick() {
+          this.playOnce(AUDIO_ASSETS.sfx_ui_click, this.vol.sfx);
+        }
+
+        playOnce(src, volume = 0.8) {
+          if (this.muted) return;
+          if (!src) return;
+          try {
+            const a = this._makeAudio(src, { loop: false, volume });
+            a.play().catch((err) => this._maybeNeedGesture(err));
+          } catch (e) {}
+        }
+
+        playSfxKey(key) {
+          const src = AUDIO_ASSETS.sfx_map?.[key];
+          if (!src) return;
+          this.playOnce(src, this.vol.sfx);
+        }
+
+        playRoleVoice(roleIndex) {
+          if (this.muted) return;
+          const src = AUDIO_ASSETS.voice_role?.[roleIndex];
+          if (!src) return;
+
+          const now = Date.now();
+          if (now - this._lastVoiceAt < 550) return; // 防止狂刷
+          this._lastVoiceAt = now;
+
+          try {
+            if (this.voice) {
+              this.voice.pause();
+              this.voice.currentTime = 0;
+            }
+          } catch (e) {}
+
+          this.voice = this._makeAudio(src, {
+            loop: false,
+            volume: this.vol.voice,
+          });
+          this.voice.play().catch((err) => this._maybeNeedGesture(err));
+        }
+      }
+
       function App() {
         const [socket, setSocket] = React.useState(null);
 
@@ -1143,8 +1462,9 @@
         const [highlightSources, setHighlightSources] = React.useState([]);
         const [highlightTargets, setHighlightTargets] = React.useState([]);
         const [highlightGudo, setHighlightGudo] = React.useState([]);
-        const [highlightGudoTargets, setHighlightGudoTargets] =
-          React.useState([]);
+        const [highlightGudoTargets, setHighlightGudoTargets] = React.useState(
+          []
+        );
         const [highlightGudoSelf, setHighlightGudoSelf] = React.useState([]);
 
         const [highlightJeiceTargets, setHighlightJeiceTargets] =
@@ -1185,13 +1505,23 @@
           };
         });
 
+        // ✅ Audio
+        const audioRef = React.useRef(null);
+        const [audioBlocked, setAudioBlocked] = React.useState(false);
+        const [audioUnlocked, setAudioUnlocked] = React.useState(false);
+        const [audioMuted, setAudioMuted] = React.useState(false);
+        const [muted, setMuted] = React.useState(false);
+
         React.useEffect(() => {
           postGameRef.current = postGame;
         }, [postGame]);
 
         const isCoarse = React.useMemo(() => {
           try {
-            return !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+            return (
+              !!window.matchMedia &&
+              window.matchMedia('(pointer: coarse)').matches
+            );
           } catch (e) {
             return false;
           }
@@ -1199,13 +1529,82 @@
 
         const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
 
-        React.useEffect(() => {
-          postGameRef.current = postGame;
-        }, [postGame]);
+        async function handleAudioButton() {
+          const am = audioRef.current;
+          if (!am) return;
+
+          // 尚未解鎖：點一次解鎖並依狀態播放
+          if (!am.unlocked) {
+            const ok = await am.unlock();
+            if (ok) {
+              setAudioUnlocked(true);
+              setAudioBlocked(false);
+
+              am.setMuted(audioMuted);
+              if (audioMuted) return;
+
+              if (postGameRef.current) am.startVictory();
+              else if (view === 'GAME' && room?.status === 'PLAYING')
+                am.startBattle();
+              else am.startLobby();
+            } else {
+              setAudioBlocked(true);
+            }
+            return;
+          }
+
+          // 已解鎖：切換靜音
+          const next = !audioMuted;
+          setAudioMuted(next);
+          am.setMuted(next);
+
+          if (!next) {
+            if (postGameRef.current) am.startVictory();
+            else if (view === 'GAME' && room?.status === 'PLAYING')
+              am.startBattle();
+            else am.startLobby();
+          }
+        }
+
+        function audioBtnLabel() {
+          if (!audioUnlocked) return audioBlocked ? '🔊 啟用音效' : '🔊 音效';
+          return audioMuted ? '🔇 音效：關' : '🔊 音效：開';
+        }
 
         // ✅ socket 只連一次（避免玩家不存在）
         React.useEffect(() => {
           setupVisualViewportVars();
+
+          // init audio mgr
+          audioRef.current = new AudioMgr({
+            onNeedGesture: () => setAudioBlocked(true),
+            onUnlocked: () => {
+              setAudioUnlocked(true);
+              setAudioBlocked(false);
+            },
+          });
+
+          // 嘗試一開始就播 lobby（若被擋，不顯示 overlay；只讓按鈕顯示「啟用音效」）
+          audioRef.current.startLobby();
+
+          // 任何一次使用者互動，都嘗試 unlock（只解鎖，不強迫播放；播放交給狀態機）
+          const tryUnlock = async () => {
+            const am = audioRef.current;
+            if (!am || am.unlocked) return;
+            const ok = await am.unlock();
+            if (ok) {
+              if (audioRef.current?.muted) return; // ✅ 靜音就不要自動播
+
+              const r = roomRef.current;
+              const v = view;
+              const pg = postGameRef.current;
+              if (pg) audioRef.current.startVictory();
+              else if (v === 'GAME' && r?.status === 'PLAYING')
+                audioRef.current.startBattle();
+              else audioRef.current.startLobby();
+            }
+          };
+          window.addEventListener('pointerdown', tryUnlock, { passive: true });
 
           const onResize = () => {
             setupVisualViewportVars();
@@ -1224,6 +1623,15 @@
 
           const s = connectSocket();
           setSocket(s);
+
+          // ✅ 由 server 發送的音效 key
+          s.on('playSfx', (payload) => {
+            try {
+              const key = payload?.key;
+              if (!key) return;
+              audioRef.current?.playSfxKey(key);
+            } catch (e) {}
+          });
 
           s.on('roomUpdated', (r) => {
             roomRef.current = r;
@@ -1380,8 +1788,35 @@
               window.visualViewport.removeEventListener('resize', onResize);
               window.visualViewport.removeEventListener('scroll', onResize);
             }
+            window.removeEventListener('pointerdown', tryUnlock);
           };
         }, []);
+
+        // ✅ BGM 自動切換：Lobby / Battle / Victory
+        React.useEffect(() => {
+          const am = audioRef.current;
+          if (!am) return;
+
+          // ✅ 沒解鎖 or 靜音：不嘗試播放（避免被擋後反覆觸發）
+          if (!am.unlocked || audioMuted) return;
+
+          if (postGame) {
+            am.startVictory();
+            return;
+          }
+
+          // 對局中才播 battle
+          if (view === 'GAME' && room?.status === 'PLAYING') {
+            am.startBattle();
+            return;
+          }
+
+          // 其他狀態都播 lobby
+          if (view === 'ENTRY' || view === 'ROOM' || view === 'ROLE') {
+            am.startLobby();
+            return;
+          }
+        }, [view, room?.status, postGame, audioMuted]);
 
         React.useEffect(() => {
           return () => {
@@ -1424,6 +1859,10 @@
 
           setPostGame({ winnerName, secondsLeft: 10, finalBoard });
 
+          // ✅ 勝利音效（回房間/離房會中斷）
+          if (!audioMuted && audioRef.current?.unlocked)
+            audioRef.current?.startVictory();
+
           let left = 10;
           postGameTimerRef.current = setInterval(() => {
             left -= 1;
@@ -1435,9 +1874,26 @@
             }
           }, 1000);
         }
+        function toggleSound() {
+          const next = !muted;
+          setMuted(next);
+
+          const am = audioRef.current;
+          if (!am) return;
+
+          am.setMuted(next);
+
+          // ✅ 從關 -> 開：立刻恢復應該播放的BGM
+          if (!next) am.resumeWantedBgm();
+        }
 
         // ✅ 回到同房 Lobby（不會回到 ENTRY）
         function backToRoom() {
+          audioRef.current?.uiClick();
+          audioRef.current?.stopVictory();
+          if (!audioMuted && audioRef.current?.unlocked)
+            audioRef.current?.startLobby();
+
           if (postGameTimerRef.current) {
             clearInterval(postGameTimerRef.current);
             postGameTimerRef.current = null;
@@ -1447,6 +1903,7 @@
         }
 
         function onCopyRoomId() {
+          audioRef.current?.uiClick();
           if (!room?.id) return;
           copyText(String(room.id)).then((ok) => {
             if (!ok) return;
@@ -1456,6 +1913,7 @@
         }
 
         function createRoom(mode) {
+          audioRef.current?.uiClick();
           socket.emit(
             'createRoom',
             { maxPlayers: 4, name: name.trim(), mode },
@@ -1471,6 +1929,7 @@
         }
 
         function joinRoom() {
+          audioRef.current?.uiClick();
           const id = prompt('輸入房間ID');
           if (!id) return;
           socket.emit('joinRoom', { roomId: id, name: name.trim() }, (res) => {
@@ -1482,11 +1941,16 @@
         }
 
         function leaveRoom() {
+          audioRef.current?.uiClick();
+          audioRef.current?.stopVictory();
+
           const rid = roomRef.current?.id || room?.id;
           if (!rid) {
             setRoom(null);
             setBoard([]);
             setView('ENTRY');
+            if (!audioMuted && audioRef.current?.unlocked)
+              audioRef.current?.startLobby();
             return;
           }
           socket.emit('leaveRoom', { roomId: rid }, (res) => {
@@ -1500,10 +1964,13 @@
             setSelectedRole1(null);
             setSelectedRole2(null);
             setView('ENTRY');
+            if (!audioMuted && audioRef.current?.unlocked)
+              audioRef.current?.startLobby();
           });
         }
 
         function pickColor(i) {
+          audioRef.current?.uiClick();
           if (!room) return;
           setSelectedColor(i);
           socket.emit(
@@ -1516,6 +1983,7 @@
         }
 
         function openRoleSelect(slot) {
+          audioRef.current?.uiClick();
           if (!room) return;
 
           // ✅ 進入選角前先 blur（避免輸入框放大造成後續畫面比例怪）
@@ -1533,6 +2001,7 @@
         }
 
         function confirmRole(roleIndex) {
+          audioRef.current?.uiClick();
           if (!room) return;
 
           // ✅ DUAL：同玩家兩角色不可重複（前端先擋）
@@ -1567,6 +2036,7 @@
         }
 
         function readyUp() {
+          audioRef.current?.uiClick();
           if (selectedColor === null) return alert('請先選擇顏色');
 
           if (room?.mode === 'DUAL') {
@@ -1582,10 +2052,12 @@
         }
 
         function startGame() {
+          audioRef.current?.uiClick();
           socket.emit('startGame', { roomId: room.id });
         }
 
         function cancelGinyu() {
+          audioRef.current?.uiClick();
           try {
             socket?.emit('ginyuCancel', { roomId: room?.id }, () => {});
           } catch (e) {}
@@ -1595,6 +2067,7 @@
         }
 
         function cancelJeice() {
+          audioRef.current?.uiClick();
           try {
             socket?.emit('jeiceCancel', { roomId: room?.id }, () => {});
           } catch (e) {}
@@ -1846,6 +2319,7 @@
         }
 
         function activateGinyu() {
+          audioRef.current?.uiClick();
           socket.emit('ginyuAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGinyuMode(true);
@@ -1855,6 +2329,7 @@
         }
 
         function activateGudo() {
+          audioRef.current?.uiClick();
           socket.emit('gudoAbilityStart', { roomId: room.id }, (res) => {
             if (res.ok) {
               setGudoMode(true);
@@ -1867,6 +2342,7 @@
         }
 
         function activateJeice() {
+          audioRef.current?.uiClick();
           socket.emit('jeiceAbilityStart', { roomId: room.id }, (res) => {
             if (res?.ok) {
               setJeiceMode(true);
@@ -1924,8 +2400,7 @@
         const inRoom = !!room?.id;
 
         // ✅ 讓 body 的 topBar 在手機對局時隱藏
-        const rootClass =
-          'appRoot' + (isGameMobile ? ' isGameMobile' : '');
+        const rootClass = 'appRoot' + (isGameMobile ? ' isGameMobile' : '');
 
         return e(
           'div',
@@ -1981,7 +2456,20 @@
                   : '建立或加入房間開始遊玩'
               )
             ),
-            e('div', { className: 'pill' }, socket?.id ? `你已連線` : '連線中…')
+            e(
+              'div',
+              { className: 'row' },
+              e('div', { className: 'pill' }, socket?.id ? `你已連線` : '連線中…'),
+              e(
+                'button',
+                {
+                  className: 'tinyBtn',
+                  onClick: handleAudioButton,
+                  title: '音效控制（啟用 / 靜音）',
+                },
+                audioBtnLabel()
+              )
+            )
           ),
 
           // ===== ENTRY：只有未進房才顯示建立/加入 =====
@@ -2265,7 +2753,7 @@
                     'div',
                     { className: 'gameDock' },
 
-                    // 房間/複製/退出
+                    // 房間/複製/音效/退出
                     e(
                       'div',
                       { className: 'dockRow' },
@@ -2289,6 +2777,15 @@
                       e(
                         'div',
                         { className: 'dockRight' },
+                        e(
+                          'button',
+                          {
+                            className: 'tinyBtn',
+                            onClick: handleAudioButton,
+                            title: '音效控制（啟用 / 靜音）',
+                          },
+                          audioBtnLabel()
+                        ),
                         e(
                           'button',
                           { className: 'tinyBtn', onClick: leaveRoom },
@@ -2503,7 +3000,16 @@
                             { onClick: cancelJeice, className: 'ghost' },
                             '取消吉斯'
                           )
-                        : null
+                        : null,
+                      e(
+                        'button',
+                        {
+                          className: 'tinyBtn',
+                          onClick: handleAudioButton,
+                          title: '音效控制（啟用 / 靜音）',
+                        },
+                        audioBtnLabel()
+                      )
                     )
                   ),
                   e(
@@ -2546,8 +3052,12 @@
                     ? selectedRole2
                     : selectedRole1
                   : null,
-              onClose: () => setView('ROOM'),
+              onClose: () => {
+                audioRef.current?.uiClick();
+                setView('ROOM');
+              },
               onConfirm: confirmRole,
+              audio: audioRef.current,
             }),
 
           // ===== PostGame Overlay =====
@@ -2585,6 +3095,7 @@
         selectedOtherRole,
         onClose,
         onConfirm,
+        audio,
       }) {
         const n = ROLES.length;
         const [current, setCurrent] = React.useState(
@@ -2630,6 +3141,13 @@
           window.addEventListener('resize', recalc);
           return () => window.removeEventListener('resize', recalc);
         }, []);
+
+        // ✅ 桌機 hover / 手機滑動切換到該角色 → 播放該角色喊名音效
+        React.useEffect(() => {
+          try {
+            audio?.playRoleVoice(current);
+          } catch (e) {}
+        }, [current]);
 
         function scheduleDragUpdate(px) {
           dragPxRef.current = px;
@@ -2766,7 +3284,17 @@
                 )
               )
             ),
-            e('button', { className: 'ghost', onClick: onClose }, '返回房間')
+            e(
+              'button',
+              {
+                className: 'ghost',
+                onClick: () => {
+                  audio?.uiClick?.();
+                  onClose();
+                },
+              },
+              '返回房間'
+            )
           ),
 
           e(
@@ -2832,7 +3360,9 @@
                       key: i,
                       className: 'roleCard',
                       style,
-                      onClick: () => setCurrent(i),
+                      onClick: () => {
+                        setCurrent(i);
+                      },
                     },
                     e(
                       'div',
@@ -2942,6 +3472,7 @@
                 className: 'confirm',
                 disabled: blocked !== null && current === blocked,
                 onClick: () => {
+                  audio?.uiClick?.();
                   if (blocked !== null && current === blocked) {
                     alert('同一玩家的 角色1 / 角色2 不能重複');
                     return;
