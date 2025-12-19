@@ -1328,70 +1328,75 @@
           this._wantBgm = 'lobby';
           if (this.muted) return;
           if (this.bgmKind === 'lobby') return;
+        
           this.stopAllBgm();
           this.bgmKind = 'lobby';
+        
           this.bgm = this._makeAudio(AUDIO_ASSETS.bgm_lobby, {
             loop: true,
             volume: this.vol.bgm,
           });
-          await this._safePlay(this.bgm);
+        
+          const ok = await this._safePlay(this.bgm);
+          if (!ok) {
+            // ✅ autoplay 被擋住時：清掉狀態，避免之後永遠卡在 "lobby" 而不重播
+            this.stopAllBgm();
+            return;
+          }
         }
 
         async startBattle() {
           this._wantBgm = 'battle';
           if (this.muted) return;
           if (this.bgmKind === 'battle') return;
+        
           this.stopAllBgm();
           this.bgmKind = 'battle';
-
+        
           const introSrc = AUDIO_ASSETS.bgm_battle_intro;
           const loopSrc = AUDIO_ASSETS.bgm_battle_loop;
-
-          // ✅ 只有一首 loop
+        
           if (!introSrc) {
-            const loop = this._makeAudio(loopSrc, {
-              loop: true,
-              volume: this.vol.bgm,
-            });
+            const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm });
             this.bgm = loop;
-            await this._safePlay(loop);
+        
+            const ok = await this._safePlay(loop);
+            if (!ok) this.stopAllBgm();
             return;
           }
-
-          // ✅ intro -> loop
-          const intro = this._makeAudio(introSrc, {
-            loop: false,
-            volume: 0.6,
-          });
-          const loop = this._makeAudio(loopSrc, {
-            loop: true,
-            volume: this.vol.bgm,
-          });
-
+        
+          const intro = this._makeAudio(introSrc, { loop: false, volume: 0.6 });
+          const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm });
+        
           this.bgm = intro;
           this.battleLoop = loop;
-
+        
           intro.addEventListener('ended', async () => {
             if (this.bgmKind !== 'battle' || this.muted) return;
             this.bgm = loop;
-            await this._safePlay(loop);
+            const ok2 = await this._safePlay(loop);
+            if (!ok2) this.stopAllBgm();
           });
-
+        
           const ok = await this._safePlay(intro);
-          if (!ok) return;
+          if (!ok) this.stopAllBgm();
         }
 
         async startVictory() {
           this._wantBgm = 'victory';
           if (this.muted) return;
           if (this.bgmKind === 'victory') return;
+        
           this.stopAllBgm();
           this.bgmKind = 'victory';
+        
           this.bgm = this._makeAudio(AUDIO_ASSETS.sfx_victory, {
             loop: false,
             volume: 0.9,
           });
-          await this._safePlay(this.bgm);
+        
+          const ok = await this._safePlay(this.bgm);
+          if (!ok) this.stopAllBgm();
         }
 
         stopVictory() {
