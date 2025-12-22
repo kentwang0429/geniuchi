@@ -1,11 +1,10 @@
-// ================= gameManager.js (DUAL + role-token + SFX hooks) =================
-// ✅ 本檔新增：在既有 socket 事件不破壞的前提下，額外送出「音效提示」資料
-// - placed payload 會多帶：sfx: { key, by:{playerIndex,slot,roleIndex}, meta:{} }
-// - 也會額外廣播：io.to(roomId).emit('sfx', {...})（前端可選擇監聽）
-//
-// ⚠️ 你之後在 index.html 只要：
-// 1) 監聽 socket.on('sfx', ...) 或 socket.on('placed', payload => payload.sfx)
-// 2) 用 key 對應到你的音檔路徑即可（目前先當占位）
+// ================= gameManager.js (DUAL + role-token + SFX hooks + UNDO + TurnInfo + Rejoin helpers) =================
+// ✅ 本檔新增/修正重點：
+// 1) 修正多處錯誤使用 room.id 造成 emit 發到 undefined 房間（嚴重不同步）
+// 2) 每次重要互動都 touch room.lastActiveAt（配合 server.js 5 分鐘 TTL 不清房）
+// 3) 新增 turnInfo / yourTurn：方便前端做「回合形狀/顏色 + 箭頭 + 輪到你了」
+// 4) 新增 setPlayerRole / rejoinByName：給 server.js 用，減少 roomUpdated 造成的選角 UI 中斷
+// 5) 保留原本 UNDO：巴特/羅根可在本回合第 1 手悔棋（可反覆悔到你下完第 2 手才結束回合）
 
 class GameManager {
   constructor(io, rooms) {
@@ -15,10 +14,7 @@ class GameManager {
     // ✅ 與前端賽後倒數一致：10 秒後回 Lobby 並重選角
     this.POST_GAME_MS = 10500;
 
-    // ✅ 音效 key 占位：你之後只要用這些 key 對應到音檔即可
-    // - lobby_bgm / battle_bgm / victory
-    // - ui_click / role_hover_* / role_confirm
-    // - place_* / skill_*
+    // ✅ 音效 key 占位
     this.SFX_KEYS = {
       // BGM / Flow
       LOBBY_BGM: 'bgm_lobby_chala',
@@ -28,8 +24,9 @@ class GameManager {
       // UI
       UI_CLICK: 'sfx_ui_click',
       ROLE_CONFIRM: 'sfx_role_confirm',
+      UNDO: 'sfx_undo',
 
-      // Role hover (角色被點到/滑到)
+      // Role hover
       ROLE_HOVER_0: 'sfx_role_ginyu_name',
       ROLE_HOVER_1: 'sfx_role_burter_name',
       ROLE_HOVER_2: 'sfx_role_recoome_name',
@@ -51,6 +48,35 @@ class GameManager {
       SKILL_GINYU_SWAP: 'sfx_skill_ginyu_swap',
       SKILL_GULDO: 'sfx_skill_guldo',
       SKILL_JEICE: 'sfx_skill_jeice',
+    };
+
+    // ✅ 角色說明（前端要做「技能說明清單」時可直接拿）
+    //    （你前端也可以不聽這份，用自己寫的；但我先把資料放好方便你接）
+    this.ROLE_INFO = {
+      0: {
+        name: '基紐',
+        desc: '可發動「交換」：選自己的基紐棋，再選同列/同行任一敵方正常棋，兩者交換位置。',
+      },
+      1: {
+        name: '巴特',
+        desc: '每回合可下 2 手（同一角色連線勝利需 6 連線）。第 1 手可悔棋。',
+      },
+      2: {
+        name: '力庫姆',
+        desc: '可覆蓋「非叉叉」位置（可蓋掉一般棋），不能下在灰叉上。',
+      },
+      3: {
+        name: '羅根',
+        desc: '每回合 2 手：第 1 手下正常棋（可下空格或自己的灰叉上）；第 2 手下灰叉（只能下空格）。第 1 手可悔棋。',
+      },
+      4: {
+        name: '古杜',
+        desc: '可移動古杜周圍 8 格內的一顆「正常棋」到該棋周圍的空格（需有空格）。',
+      },
+      5: {
+        name: '吉斯',
+        desc: '先落子；若相鄰有敵方正常棋，可選 1 顆擊退（遠離落子方向）最多 2 格，需有空格才可推。',
+      },
     };
 
     this.roleAbilities = {
@@ -91,6 +117,7 @@ class GameManager {
         canUseCross: true,
         place(board, x, y, token, playerIndex, placedThisTurn) {
           if (placedThisTurn === 0) {
+            // 第 1 手：可放空格 or 自己的灰叉上
             if (board[y][x] === -(playerIndex + 1)) {
               board[y][x] = token;
             } else if (board[y][x] === 0) {
@@ -99,6 +126,7 @@ class GameManager {
               throw new Error('此處不可放置');
             }
           } else if (placedThisTurn === 1) {
+            // 第 2 手：灰叉只能放空格
             if (board[y][x] !== 0) throw new Error('灰叉必須放在空格上');
             board[y][x] = -(playerIndex + 1);
           } else {
@@ -130,12 +158,22 @@ class GameManager {
   }
 
   // ================= Utils =================
+  now() {
+    return Date.now();
+  }
+
+  // ✅ 每次互動都更新 room.lastActiveAt（配合 server.js 做 5 分鐘 TTL 清房）
+  _touchRoom(room) {
+    if (!room) return;
+    room.lastActiveAt = this.now();
+  }
+
   createEmptyBoard(size) {
     return Array.from({ length: size }, () => Array(size).fill(0));
   }
 
   _tokenOf(playerIndex, slot) {
-    return playerIndex * 2 + slot;
+    return playerIndex * 2 + slot; // 1-based token for pieces: (p0,s1)=1,(p0,s2)=2,(p1,s1)=3,(p1,s2)=4...
   }
 
   _decodeToken(token) {
@@ -156,18 +194,49 @@ class GameManager {
     return player.roleIndex;
   }
 
+  _getTurnMeta(room) {
+    const turnIndex = room.turnIndex || 0;
+    const turnSlot = room.turnSlot || 1;
+    const p = room.players?.[turnIndex] || null;
+    const roleIndex = this._getActiveRoleIndex(room, p, turnSlot);
+    const token = typeof turnIndex === 'number' ? this._tokenOf(turnIndex, turnSlot) : null;
+
+    return {
+      turnIndex,
+      turnSlot,
+      turnPlayerId: p?.id || null,
+      turnPlayerName: p?.name || p?.nickname || null,
+      roleIndex: typeof roleIndex === 'number' ? roleIndex : null,
+      token,
+      roleName: typeof roleIndex === 'number' ? this.ROLE_INFO?.[roleIndex]?.name || null : null,
+    };
+  }
+
   _emitPlaced(roomId, room, extra = {}) {
+    const turnMeta = this._getTurnMeta(room);
     this.io.to(roomId).emit('placed', {
       board: room.board,
-      turnIndex: room.turnIndex,
-      turnSlot: room.turnSlot || 1,
+      turnIndex: turnMeta.turnIndex,
+      turnSlot: turnMeta.turnSlot,
       roundCount: room.roundCount,
       status: room.status,
+      turnMeta, // ✅ 前端做回合提示(形狀/顏色/箭頭/輪到你) 的資料入口
+      roleInfo: this.ROLE_INFO, // ✅ 前端想做技能說明清單可直接用
       ...extra,
     });
   }
 
-  // ✅ 額外音效事件（前端可選擇監聽）
+  _emitRoomUpdated(roomId, room, extra = {}) {
+    // ✅ 給 lobby / 選角時更新用。你也可以在 server.js 改成只 emit patch。
+    const turnMeta = this._getTurnMeta(room);
+    this.io.to(roomId).emit('roomUpdated', {
+      ...room,
+      turnMeta,
+      roleInfo: this.ROLE_INFO,
+      ...extra,
+    });
+  }
+
   _emitSfx(roomId, sfx) {
     try {
       this.io.to(roomId).emit('sfx', sfx);
@@ -175,7 +244,6 @@ class GameManager {
   }
 
   _sfxForPlace(roleIndex, placedThisTurnBefore) {
-    // placedThisTurnBefore：落子前的 placedThisTurn（0=第一步，1=第二步）
     switch (roleIndex) {
       case 0:
         return this.SFX_KEYS.PLACE_GINYU;
@@ -198,10 +266,109 @@ class GameManager {
     }
   }
 
+  // ✅ 保存「本回合第 1 手」以供悔棋（只限巴特/羅根）
+  _setFirstMoveSnapshot(player, snap) {
+    player._firstMove = snap || null;
+  }
+  _getFirstMoveSnapshot(player) {
+    return player?._firstMove || null;
+  }
+  _clearFirstMoveSnapshot(player) {
+    if (player) player._firstMove = null;
+  }
+
+  // ✅ 讓前端做「輪到你了」提示＆回合箭頭
+  _emitTurnInfo(roomId, room) {
+    const meta = this._getTurnMeta(room);
+    this.io.to(roomId).emit('turnInfo', meta);
+
+    // ✅ 只推給當前玩家（若前端想做 popup/震動/提示音）
+    if (meta.turnPlayerId) {
+      this.io.to(meta.turnPlayerId).emit('yourTurn', meta);
+    }
+  }
+
+  // ================= Lobby helpers (給 server.js 用) =================
+  // ✅ 修正「伺服端更新角色會讓另一個人選角中斷」：建議 server.js 改用這個，只發 patch，不要一直整包 roomUpdated
+  // data: { roomId, playerId, slot, roleIndex, name? }
+  setPlayerRole(roomId, data, cb) {
+    const room = this.rooms[roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
+    const { playerId, slot = 1, roleIndex, name } = data || {};
+    if (typeof roleIndex !== 'number') return cb?.({ ok: false, message: 'roleIndex 無效' });
+
+    const idx = room.players?.findIndex((p) => p.id === playerId) ?? -1;
+    if (idx === -1) return cb?.({ ok: false, message: '玩家不存在' });
+
+    const p = room.players[idx];
+    if (name) p.name = name;
+
+    if (room.mode === 'DUAL') {
+      if (slot === 2) p.roleIndex2 = roleIndex;
+      else p.roleIndex1 = roleIndex;
+    } else {
+      p.roleIndex = roleIndex;
+    }
+
+    // ✅ 只發 patch：前端若支援可避免「整個 lobby state 被 reset」
+    this.io.to(roomId).emit('rolePatched', {
+      playerIndex: idx,
+      playerId: p.id,
+      name: p.name || null,
+      slot: room.mode === 'DUAL' ? (slot === 2 ? 2 : 1) : 1,
+      roleIndex,
+      roleName: this.ROLE_INFO?.[roleIndex]?.name || null,
+    });
+
+    // ✅ 同時仍發 roomUpdated（如果你的前端仍依賴 roomUpdated）
+    //    若你已經把前端改成吃 rolePatched，就可以在 server.js 不再呼叫 roomUpdated。
+    this._emitRoomUpdated(roomId, room);
+
+    cb?.({ ok: true });
+  }
+
+  // ✅ 讓「斷線重整」用名字回來（server.js 收到 joinRoom 時呼叫）
+  // data: { roomId, name, newSocketId }
+  rejoinByName(roomId, data, cb) {
+    const room = this.rooms[roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
+    const { name, newSocketId } = data || {};
+    if (!name || !newSocketId) return cb?.({ ok: false, message: '參數不足' });
+
+    const idx = room.players?.findIndex((p) => (p.name || '') === name) ?? -1;
+    if (idx === -1) return cb?.({ ok: false, message: '找不到同名玩家' });
+
+    const p = room.players[idx];
+
+    // ✅ 把玩家 socket id 換成新的，並標記連線狀態
+    p.id = newSocketId;
+    p.connected = true;
+    p.lastRejoinAt = this.now();
+
+    // ✅ 若正好輪到他，補推一次 yourTurn，避免重整後不知道輪到誰
+    if (room.status === 'PLAYING') {
+      const meta = this._getTurnMeta(room);
+      if (meta.turnIndex === idx && meta.turnPlayerId) {
+        this.io.to(meta.turnPlayerId).emit('yourTurn', meta);
+      }
+    }
+
+    this._emitRoomUpdated(roomId, room, { rejoined: { playerIndex: idx, name } });
+    cb?.({ ok: true, playerIndex: idx });
+  }
+
   // ================= Game Flow =================
   startGame(roomId) {
     const room = this.rooms[roomId];
     if (!room) return;
+
+    this._touchRoom(room);
 
     room.status = 'PLAYING';
     room.turnIndex = 0;
@@ -218,22 +385,26 @@ class GameManager {
       p.usedGinyuThisTurn = false;
       p.usedGudoThisTurn = false;
       p.usedJeiceThisTurn = false;
+      this._clearFirstMoveSnapshot(p);
       if (p.wins === undefined) p.wins = 0;
     });
 
-    this.io.to(roomId).emit('roomUpdated', room);
+    this._emitRoomUpdated(roomId, room);
 
-    // ✅ BGM：通知前端切到戰鬥音樂（占位 key）
     this._emitSfx(roomId, {
       key: this.SFX_KEYS.BATTLE_BGM,
       scope: 'bgm',
       action: 'start',
     });
+
+    this._emitTurnInfo(roomId, room);
   }
 
   restartGame(roomId) {
     const room = this.rooms[roomId];
     if (!room) return;
+
+    this._touchRoom(room);
 
     room.status = 'LOBBY';
     room.board = this.createEmptyBoard(room.boardSize || 15);
@@ -245,71 +416,168 @@ class GameManager {
     room.turnSlot = room.mode === 'DUAL' ? 1 : 1;
     room.roundCount = 1;
 
-    // ✅ 修改：不再清空顏色/角色，讓玩家可在賽後提前預選下一局
     room.players.forEach((p) => {
       p.ready = false;
       p.placedThisTurn = 0;
-
-      // 不清空：
-      // p.colorIndex = null;
-      // p.roleIndex = null;
-      // p.roleIndex1 = null;
-      // p.roleIndex2 = null;
-
       p.usedGinyuThisTurn = false;
       p.usedGudoThisTurn = false;
       p.usedJeiceThisTurn = false;
+      this._clearFirstMoveSnapshot(p);
     });
 
-    this.io.to(roomId).emit('roomUpdated', room);
+    this._emitRoomUpdated(roomId, room);
 
-    // ✅ 回 Lobby：通知前端恢復主題曲（占位 key）
     this._emitSfx(roomId, {
       key: this.SFX_KEYS.LOBBY_BGM,
       scope: 'bgm',
       action: 'start',
     });
+
+    this._emitTurnInfo(roomId, room);
+  }
+
+  // ================= UNDO (Burter / Logan) =================
+  undoMove(socket, data, cb) {
+    const { roomId } = data || {};
+    const room = this.rooms[roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
+    if (room.status !== 'PLAYING')
+      return cb?.({ ok: false, message: '遊戲未開始' });
+
+    const playerIndex = room.players.findIndex((p) => p.id === socket.id);
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
+    if (playerIndex !== room.turnIndex)
+      return cb?.({ ok: false, message: '尚未輪到你' });
+
+    const player = room.players[playerIndex];
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+
+    if (roleIndex !== 1 && roleIndex !== 3) {
+      return cb?.({ ok: false, message: '只有巴特/羅根可悔棋' });
+    }
+
+    // 只允許悔第一手：placedThisTurn 必須為 1
+    if ((player.placedThisTurn || 0) !== 1) {
+      return cb?.({ ok: false, message: '只能在本回合第 1 手悔棋（第 2 手後不可悔）' });
+    }
+
+    const snap = this._getFirstMoveSnapshot(player);
+    if (!snap) return cb?.({ ok: false, message: '沒有可悔棋的紀錄' });
+
+    // 防呆：確保還在同一個 turn key
+    if (
+      snap.turnIndex !== room.turnIndex ||
+      snap.turnSlot !== (room.turnSlot || 1) ||
+      snap.playerIndex !== playerIndex ||
+      snap.slot !== slot
+    ) {
+      this._clearFirstMoveSnapshot(player);
+      return cb?.({ ok: false, message: '悔棋狀態已失效' });
+    }
+
+    const { x, y, prev } = snap;
+    if (room.board?.[y]?.[x] === undefined) {
+      this._clearFirstMoveSnapshot(player);
+      return cb?.({ ok: false, message: '悔棋座標錯誤' });
+    }
+
+    // 回復棋盤
+    room.board[y][x] = prev;
+
+    // 回復回合步數
+    player.placedThisTurn = 0;
+
+    // 清理能力流程（避免悔棋後殘留）
+    room.ginyuState = null;
+    room.gudoState = null;
+    room.jeiceState = null;
+
+    // 清除快照（悔完後可再次下新的第一手，再建立新快照）
+    this._clearFirstMoveSnapshot(player);
+
+    const sfx = {
+      key: this.SFX_KEYS.UNDO,
+      scope: 'sfx',
+      action: 'play',
+      by: { playerIndex, slot, roleIndex },
+      meta: { x, y },
+    };
+    this._emitSfx(roomId, sfx);
+
+    this._emitPlaced(roomId, room, { sfx, undo: { x, y } });
+
+    // ✅ 悔棋不換回合，但可以再提示一次「輪到你」
+    this._emitTurnInfo(roomId, room);
+
+    cb?.({ ok: true });
   }
 
   // ================= Normal Place =================
   placePiece(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
     const role = this.roleAbilities[roleIndex];
     if (typeof roleIndex !== 'number' || !role)
-      return cb({ ok: false, message: '角色未設定' });
+      return cb?.({ ok: false, message: '角色未設定' });
 
     if (room.jeiceState && room.jeiceState.playerIndex === playerIndex) {
-      return cb({ ok: false, message: '吉斯能力進行中，請先完成或取消' });
+      return cb?.({ ok: false, message: '吉斯能力進行中，請先完成或取消' });
     }
 
     const board = room.board;
     const token = this._tokenOf(playerIndex, slot);
 
-    // ✅ 用於音效判斷（巴特/羅根需要知道是第幾步）
     const placedThisTurnBefore = player.placedThisTurn || 0;
 
+    // ✅ 若是巴特/羅根，且即將下第 1 手：先準備快照（成功落子後才正式保存）
+    const shouldSnapshot = (roleIndex === 1 || roleIndex === 3) && placedThisTurnBefore === 0;
+    let prevValue = null;
+
     try {
+      prevValue = board?.[y]?.[x];
       if (roleIndex === 3) {
         role.place(board, x, y, token, playerIndex, placedThisTurnBefore);
       } else {
         role.place(board, x, y, token);
       }
       player.placedThisTurn = placedThisTurnBefore + 1;
+
+      if (shouldSnapshot) {
+        this._setFirstMoveSnapshot(player, {
+          playerIndex,
+          slot,
+          roleIndex,
+          x,
+          y,
+          prev: prevValue, // 通常是 0；羅根可能是自己的灰叉
+          turnIndex: room.turnIndex,
+          turnSlot: room.turnSlot || 1,
+        });
+      } else {
+        // 第 2 手或其它角色：避免殘留
+        if (player.placedThisTurn >= 2) this._clearFirstMoveSnapshot(player);
+      }
     } catch (err) {
-      return cb({ ok: false, message: err.message });
+      return cb?.({ ok: false, message: err?.message || '落子失敗' });
     }
 
     const targetN = roleIndex === 1 ? 6 : room.targetN;
@@ -324,7 +592,6 @@ class GameManager {
       room.gudoState = null;
       room.jeiceState = null;
 
-      // ✅ 勝利音效（10 秒）
       const victorySfx = {
         key: this.SFX_KEYS.VICTORY,
         scope: 'sfx',
@@ -339,11 +606,9 @@ class GameManager {
           by: { playerIndex, slot, roleIndex },
           meta: { x, y, step: placedThisTurnBefore },
         },
-        // 額外附一個 victory（前端可選擇只用 sfx 或用 sfx2）
         sfx2: victorySfx,
       });
 
-      // 也額外送出 sfx event（前端可選擇監聽）
       this._emitSfx(roomId, {
         key: placeSfxKey,
         scope: 'sfx',
@@ -353,9 +618,8 @@ class GameManager {
       });
       this._emitSfx(roomId, victorySfx);
 
-      // ✅ 延後 10 秒後回 Lobby（但不清空顏色/角色，允許先預選）
       setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
-      return cb({ ok: true, win: true });
+      return cb?.({ ok: true, win: true });
     }
 
     // 非勝利：先廣播落子音效
@@ -379,12 +643,19 @@ class GameManager {
       },
     });
 
-    cb({ ok: true });
+    // ✅ 若剛好換回合，_advanceTurn 裡也會 emit turnInfo；
+    //    若沒換回合（巴特/羅根第 1 手），這裡再補一次 turnInfo 方便前端更新提示
+    this._emitTurnInfo(roomId, room);
+
+    cb?.({ ok: true });
   }
 
   _advanceTurn(room) {
     const current = room.players[room.turnIndex];
-    if (current) current.placedThisTurn = 0;
+    if (current) {
+      current.placedThisTurn = 0;
+      this._clearFirstMoveSnapshot(current);
+    }
 
     if (room.mode === 'DUAL') {
       const lastIdx = room.players.length - 1;
@@ -420,6 +691,7 @@ class GameManager {
       next.usedGudoThisTurn = false;
       next.usedJeiceThisTurn = false;
       next.placedThisTurn = 0;
+      this._clearFirstMoveSnapshot(next);
     }
   }
 
@@ -429,55 +701,62 @@ class GameManager {
     const room = this.rooms[roomId];
     if (room) {
       this._emitPlaced(roomId, room);
+      this._emitTurnInfo(roomId, room);
     }
   }
 
   ginyuCancel(socket, data, cb) {
-    const { roomId } = data;
+    const { roomId } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
     if (roleIndex !== 0)
-      return cb({ ok: false, message: '只有基紐可以取消此能力' });
+      return cb?.({ ok: false, message: '只有基紐可以取消此能力' });
 
     room.ginyuState = null;
     this.emitGinyuCancelled(socket, roomId, '已取消基紐能力');
-    cb({ ok: true });
+    cb?.({ ok: true });
   }
 
   ginyuAbilityStart(socket, data, cb) {
-    const { roomId } = data;
+    const { roomId } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
     if (roleIndex !== 0)
-      return cb({ ok: false, message: '只有基紐可以使用此能力' });
+      return cb?.({ ok: false, message: '只有基紐可以使用此能力' });
 
     if (player.placedThisTurn && player.placedThisTurn > 0)
-      return cb({ ok: false, message: '本回合已經落子，無法發動能力' });
+      return cb?.({ ok: false, message: '本回合已經落子，無法發動能力' });
 
     if (player.usedGinyuThisTurn)
-      return cb({ ok: false, message: '本回合已使用過基紐能力' });
+      return cb?.({ ok: false, message: '本回合已使用過基紐能力' });
 
     const board = room.board;
     const size = board.length;
@@ -510,7 +789,7 @@ class GameManager {
     }
 
     if (!sources.length)
-      return cb({ ok: false, message: '目前沒有可以發動基紐能力的位置' });
+      return cb?.({ ok: false, message: '目前沒有可以發動基紐能力的位置' });
 
     room.ginyuState = {
       playerIndex,
@@ -520,7 +799,6 @@ class GameManager {
       targets: [],
     };
 
-    // ✅ 技能音效（開始）——占位
     this._emitSfx(roomId, {
       key: this.SFX_KEYS.SKILL_GINYU_SWAP,
       scope: 'sfx',
@@ -528,39 +806,42 @@ class GameManager {
       by: { playerIndex, slot, roleIndex },
     });
 
-    cb({ ok: true, sources });
+    cb?.({ ok: true, sources });
   }
 
   ginyuSelectSource(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
     if (roleIndex !== 0)
-      return cb({ ok: false, message: '只有基紐可以使用此能力' });
+      return cb?.({ ok: false, message: '只有基紐可以使用此能力' });
 
     const state = room.ginyuState;
     if (!state || state.playerIndex !== playerIndex) {
       room.ginyuState = null;
       this.emitGinyuCancelled(socket, roomId, '基紐能力已取消');
-      return cb({ ok: false, message: '尚未發動基紐能力' });
+      return cb?.({ ok: false, message: '尚未發動基紐能力' });
     }
 
     const isSourceValid = state.sources?.some((p) => p.x === x && p.y === y);
     if (!isSourceValid) {
       room.ginyuState = null;
       this.emitGinyuCancelled(socket, roomId, '已取消基紐能力');
-      return cb({ ok: false, message: '已取消基紐能力' });
+      return cb?.({ ok: false, message: '已取消基紐能力' });
     }
 
     const board = room.board;
@@ -587,45 +868,48 @@ class GameManager {
     if (!targets.length) {
       room.ginyuState = null;
       this.emitGinyuCancelled(socket, roomId, '此基紐棋沒有可交換目標，已取消');
-      return cb({ ok: false, message: '此基紐棋沒有可交換目標' });
+      return cb?.({ ok: false, message: '此基紐棋沒有可交換目標' });
     }
 
     state.source = { x, y };
     state.targets = targets;
 
-    cb({ ok: true, targets });
+    cb?.({ ok: true, targets });
   }
 
   ginyuSelectTarget(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
     if (roleIndex !== 0)
-      return cb({ ok: false, message: '只有基紐可以使用此能力' });
+      return cb?.({ ok: false, message: '只有基紐可以使用此能力' });
 
     const state = room.ginyuState;
     if (!state || state.playerIndex !== playerIndex || !state.source) {
       room.ginyuState = null;
       this.emitGinyuCancelled(socket, roomId, '基紐能力已取消');
-      return cb({ ok: false, message: '尚未選擇基紐棋' });
+      return cb?.({ ok: false, message: '尚未選擇基紐棋' });
     }
 
     const isTargetValid = state.targets?.some((p) => p.x === x && p.y === y);
     if (!isTargetValid) {
       room.ginyuState = null;
       this.emitGinyuCancelled(socket, roomId, '已取消基紐能力');
-      return cb({ ok: false, message: '已取消基紐能力' });
+      return cb?.({ ok: false, message: '已取消基紐能力' });
     }
 
     const board = room.board;
@@ -639,7 +923,6 @@ class GameManager {
     player.usedGinyuThisTurn = true;
     room.ginyuState = null;
 
-    // ✅ 交換音效（所有人聽到）
     const swapSfx = {
       key: this.SFX_KEYS.SKILL_GINYU_SWAP,
       scope: 'sfx',
@@ -662,44 +945,49 @@ class GameManager {
         meta: { durationMs: 10000 },
       };
 
-      this._emitPlaced(room.id, room, {
+      // ✅ 修正：不要用 room.id（可能不存在）
+      this._emitPlaced(roomId, room, {
         win: { winnerIndex: winner, winnerId: winPlayer.id },
         sfx: swapSfx,
         sfx2: victorySfx,
       });
 
-      this._emitSfx(room.id, victorySfx);
-      setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
-      return cb({ ok: true, win: true });
+      this._emitSfx(roomId, victorySfx);
+      setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
+      return cb?.({ ok: true, win: true });
     }
 
     this._emitPlaced(roomId, room, { sfx: swapSfx });
-    cb({ ok: true });
+    this._emitTurnInfo(roomId, room);
+    cb?.({ ok: true });
   }
 
   // ================= Guldo =================
   gudoAbilityStart(socket, data, cb) {
-    const { roomId } = data;
+    const { roomId } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
     if (roleIndex !== 4)
-      return cb({ ok: false, message: '只有古杜可以使用此能力' });
+      return cb?.({ ok: false, message: '只有古杜可以使用此能力' });
     if (player.usedGudoThisTurn)
-      return cb({ ok: false, message: '本回合已使用過古杜能力' });
+      return cb?.({ ok: false, message: '本回合已使用過古杜能力' });
 
     if (player.placedThisTurn && player.placedThisTurn > 0)
-      return cb({ ok: false, message: '本回合已經落子，無法發動能力' });
+      return cb?.({ ok: false, message: '本回合已經落子，無法發動能力' });
 
     const board = room.board;
     const size = board.length;
@@ -713,7 +1001,7 @@ class GameManager {
     }
 
     if (!sources.length)
-      return cb({ ok: false, message: '場上沒有古杜棋可使用能力' });
+      return cb?.({ ok: false, message: '場上沒有古杜棋可使用能力' });
 
     room.gudoState = {
       playerIndex,
@@ -724,7 +1012,6 @@ class GameManager {
       emptyAround: [],
     };
 
-    // ✅ 技能音效（開始）——占位
     this._emitSfx(roomId, {
       key: this.SFX_KEYS.SKILL_GULDO,
       scope: 'sfx',
@@ -732,34 +1019,36 @@ class GameManager {
       by: { playerIndex, slot, roleIndex },
     });
 
-    cb({ ok: true, sources });
+    cb?.({ ok: true, sources });
   }
 
   gudoSelectSource(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
 
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
     if (roleIndex !== 4)
-      return cb({ ok: false, message: '只有古杜可以使用此能力' });
+      return cb?.({ ok: false, message: '只有古杜可以使用此能力' });
 
     const state = room.gudoState;
     if (!state || state.playerIndex !== playerIndex)
-      return cb({ ok: false, message: '尚未啟動古杜能力' });
+      return cb?.({ ok: false, message: '尚未啟動古杜能力' });
 
     if (room.board?.[y]?.[x] !== state.selfToken)
-      return cb({ ok: false, message: '請選擇自己的古杜棋' });
+      return cb?.({ ok: false, message: '請選擇自己的古杜棋' });
 
     state.source = { x, y };
 
@@ -792,42 +1081,46 @@ class GameManager {
     if (!hasOther) {
       room.gudoState = null;
       this.io.to(roomId).emit('gudoCancelled');
-      return cb({ ok: false, message: '周圍沒有可移動目標，古杜能力取消' });
+      this._emitPlaced(roomId, room);
+      this._emitTurnInfo(roomId, room);
+      return cb?.({ ok: false, message: '周圍沒有可移動目標，古杜能力取消' });
     }
 
     state.step = 'selectTarget';
-    cb({ ok: true, highlights: area });
+    cb?.({ ok: true, highlights: area });
   }
 
   gudoSelectTarget(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
 
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const state = room.gudoState;
     if (!state || state.playerIndex !== playerIndex)
-      return cb({ ok: false, message: '尚未啟動古杜能力' });
+      return cb?.({ ok: false, message: '尚未啟動古杜能力' });
 
-    if (!state.source) return cb({ ok: false, message: '請先選擇古杜棋' });
+    if (!state.source) return cb?.({ ok: false, message: '請先選擇古杜棋' });
 
     if (Math.abs(x - state.source.x) > 1 || Math.abs(y - state.source.y) > 1)
-      return cb({ ok: false, message: '只能選擇古杜周圍的棋子' });
+      return cb?.({ ok: false, message: '只能選擇古杜周圍的棋子' });
 
     const v = room.board?.[y]?.[x];
-    if (v === undefined) return cb({ ok: false, message: '座標錯誤' });
+    if (v === undefined) return cb?.({ ok: false, message: '座標錯誤' });
 
     if (v <= 0)
-      return cb({ ok: false, message: '只能選正常棋（不能選空格/灰叉）' });
+      return cb?.({ ok: false, message: '只能選正常棋（不能選空格/灰叉）' });
     if (v === state.selfToken)
-      return cb({ ok: false, message: '不能選自己此角色的棋' });
+      return cb?.({ ok: false, message: '不能選自己此角色的棋' });
 
     const offsets = [-1, 0, 1];
     const emptyAround = [];
@@ -851,27 +1144,31 @@ class GameManager {
     if (!emptyAround.length) {
       room.gudoState = null;
       this.io.to(roomId).emit('gudoCancelled');
-      return cb({ ok: false, message: '該棋周圍沒有空格，古杜能力取消' });
+      this._emitPlaced(roomId, room);
+      this._emitTurnInfo(roomId, room);
+      return cb?.({ ok: false, message: '該棋周圍沒有空格，古杜能力取消' });
     }
 
     state.target = { x, y };
     state.emptyAround = emptyAround;
     state.step = 'move';
-    cb({ ok: true, emptyAround });
+    cb?.({ ok: true, emptyAround });
   }
 
   gudoMovePiece(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
 
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
@@ -879,23 +1176,25 @@ class GameManager {
 
     const state = room.gudoState;
     if (!state || state.playerIndex !== playerIndex || !state.target)
-      return cb({ ok: false, message: '尚未選定可移動棋' });
+      return cb?.({ ok: false, message: '尚未選定可移動棋' });
 
     if (room.board?.[y]?.[x] !== 0)
-      return cb({ ok: false, message: '只能移動到空格' });
+      return cb?.({ ok: false, message: '只能移動到空格' });
 
     const allowed = Array.isArray(state.emptyAround)
       ? state.emptyAround.some((p) => p.x === x && p.y === y)
       : false;
 
-    if (!allowed) return cb({ ok: false, message: '只能移動到目標周圍的空格' });
+    if (!allowed) return cb?.({ ok: false, message: '只能移動到目標周圍的空格' });
 
     const targetPiece = state.target;
     const tv = room.board?.[targetPiece.y]?.[targetPiece.x];
     if (tv === undefined || tv <= 0) {
       room.gudoState = null;
       this.io.to(roomId).emit('gudoCancelled');
-      return cb({ ok: false, message: '目標棋已不存在，古杜能力取消' });
+      this._emitPlaced(roomId, room);
+      this._emitTurnInfo(roomId, room);
+      return cb?.({ ok: false, message: '目標棋已不存在，古杜能力取消' });
     }
 
     room.board[targetPiece.y][targetPiece.x] = 0;
@@ -926,19 +1225,21 @@ class GameManager {
         meta: { durationMs: 10000 },
       };
 
-      this._emitPlaced(room.id, room, {
+      // ✅ 修正：不要用 room.id
+      this._emitPlaced(roomId, room, {
         win: { winnerIndex: winner, winnerId: winPlayer.id },
         sfx: moveSfx,
         sfx2: victorySfx,
       });
 
-      this._emitSfx(room.id, victorySfx);
-      setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
-      return cb({ ok: true, win: true });
+      this._emitSfx(roomId, victorySfx);
+      setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
+      return cb?.({ ok: true, win: true });
     }
 
     this._emitPlaced(roomId, room, { sfx: moveSfx });
-    cb({ ok: true });
+    this._emitTurnInfo(roomId, room);
+    cb?.({ ok: true });
   }
 
   // ================= Jeice =================
@@ -947,32 +1248,36 @@ class GameManager {
     const room = this.rooms[roomId];
     if (room) {
       this._emitPlaced(roomId, room);
+      this._emitTurnInfo(roomId, room);
     }
   }
 
   jeiceAbilityStart(socket, data, cb) {
-    const { roomId } = data;
+    const { roomId } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const slot = this._getActiveSlot(room);
     const roleIndex = this._getActiveRoleIndex(room, player, slot);
 
     if (roleIndex !== 5)
-      return cb({ ok: false, message: '只有吉斯可以使用此能力' });
+      return cb?.({ ok: false, message: '只有吉斯可以使用此能力' });
     if (player.usedJeiceThisTurn)
-      return cb({ ok: false, message: '本回合已使用過吉斯能力' });
+      return cb?.({ ok: false, message: '本回合已使用過吉斯能力' });
 
     if (player.placedThisTurn && player.placedThisTurn > 0)
-      return cb({ ok: false, message: '本回合已經落子，無法發動能力' });
+      return cb?.({ ok: false, message: '本回合已經落子，無法發動能力' });
 
     room.jeiceState = {
       playerIndex,
@@ -983,7 +1288,6 @@ class GameManager {
       targets: [],
     };
 
-    // ✅ 技能音效（開始）——占位
     this._emitSfx(roomId, {
       key: this.SFX_KEYS.SKILL_JEICE,
       scope: 'sfx',
@@ -991,20 +1295,23 @@ class GameManager {
       by: { playerIndex, slot, roleIndex },
     });
 
-    cb({ ok: true });
+    cb?.({ ok: true });
   }
 
   jeicePlace(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
     const state = room.jeiceState;
@@ -1012,14 +1319,14 @@ class GameManager {
     if (!state || state.playerIndex !== playerIndex || state.step !== 'place') {
       room.jeiceState = null;
       this.emitJeiceCancelled(socket, roomId, '吉斯能力已取消');
-      return cb({ ok: false, message: '尚未發動吉斯能力' });
+      return cb?.({ ok: false, message: '尚未發動吉斯能力' });
     }
 
     const board = room.board;
 
     if (board?.[y]?.[x] === undefined)
-      return cb({ ok: false, message: '座標錯誤' });
-    if (board[y][x] !== 0) return cb({ ok: false, message: '只能落子在空格' });
+      return cb?.({ ok: false, message: '座標錯誤' });
+    if (board[y][x] !== 0) return cb?.({ ok: false, message: '只能落子在空格' });
 
     try {
       this.roleAbilities[5].place(board, x, y, state.selfToken);
@@ -1027,11 +1334,10 @@ class GameManager {
       player.usedJeiceThisTurn = true;
     } catch (err) {
       room.jeiceState = null;
-      this.emitJeiceCancelled(socket, roomId, err.message);
-      return cb({ ok: false, message: err.message });
+      this.emitJeiceCancelled(socket, roomId, err?.message || '落子失敗');
+      return cb?.({ ok: false, message: err?.message || '落子失敗' });
     }
 
-    // ✅ 吉斯落子音效
     const placeSfx = {
       key: this.SFX_KEYS.PLACE_JEICE,
       scope: 'sfx',
@@ -1063,8 +1369,8 @@ class GameManager {
     if (!targets.length) {
       room.jeiceState = null;
 
-      const roleIndex = this._getActiveRoleIndex(room, player, state.slot);
-      const targetN = roleIndex === 1 ? 6 : room.targetN;
+      const roleIndexNow = this._getActiveRoleIndex(room, player, state.slot);
+      const targetN = roleIndexNow === 1 ? 6 : room.targetN;
       const win = this.checkWinner(board, x, y, selfToken, targetN);
 
       if (win) {
@@ -1086,29 +1392,33 @@ class GameManager {
 
         this._emitSfx(roomId, victorySfx);
         setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
-        return cb({ ok: true, targets: [], win: true });
+        return cb?.({ ok: true, targets: [], win: true });
       }
 
       this._advanceTurn(room);
       this._emitPlaced(roomId, room, { sfx: placeSfx });
-      return cb({ ok: true, targets: [] });
+      this._emitTurnInfo(roomId, room);
+      return cb?.({ ok: true, targets: [] });
     }
 
-    // ✅ 這裡不廣播 placed（因為前端會先 optimistic render），等選/取消後再廣播
-    cb({ ok: true, targets });
+    // ✅ 不廣播 placed，讓前端可先 optimistic render
+    cb?.({ ok: true, targets, placed: { x, y } });
   }
 
   jeiceSelectTarget(socket, data, cb) {
-    const { roomId, x, y } = data;
+    const { roomId, x, y } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const state = room.jeiceState;
 
@@ -1120,7 +1430,7 @@ class GameManager {
     ) {
       room.jeiceState = null;
       this.emitJeiceCancelled(socket, roomId, '吉斯能力已取消');
-      return cb({ ok: false, message: '尚未進入選擇擊退目標階段' });
+      return cb?.({ ok: false, message: '尚未進入選擇擊退目標階段' });
     }
 
     const isValid =
@@ -1137,7 +1447,7 @@ class GameManager {
     if (tv === undefined) {
       room.jeiceState = null;
       this.emitJeiceCancelled(socket, roomId, '座標錯誤');
-      return cb({ ok: false, message: '座標錯誤' });
+      return cb?.({ ok: false, message: '座標錯誤' });
     }
 
     if (tv <= 0) {
@@ -1196,16 +1506,17 @@ class GameManager {
         meta: { durationMs: 10000 },
       };
 
-      this._emitPlaced(room.id, room, {
+      // ✅ 修正：不要用 room.id
+      this._emitPlaced(roomId, room, {
         win: { winnerIndex: winner, winnerId: winPlayer.id },
         effect: { type: 'jeice', from, target: { x, y }, to: pushedTo },
         sfx: jeiceSkillSfx,
         sfx2: victorySfx,
       });
 
-      this._emitSfx(room.id, victorySfx);
-      setTimeout(() => this.restartGame(room.id), this.POST_GAME_MS);
-      cb({ ok: true, win: true });
+      this._emitSfx(roomId, victorySfx);
+      setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
+      cb?.({ ok: true, win: true });
       return;
     }
 
@@ -1216,20 +1527,24 @@ class GameManager {
       sfx: jeiceSkillSfx,
     });
 
-    cb({ ok: true, pushedTo });
+    this._emitTurnInfo(roomId, room);
+    cb?.({ ok: true, pushedTo });
   }
 
   jeiceCancel(socket, data, cb) {
-    const { roomId } = data;
+    const { roomId } = data || {};
     const room = this.rooms[roomId];
-    if (!room) return cb({ ok: false, message: '房間不存在' });
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
     if (room.status !== 'PLAYING')
-      return cb({ ok: false, message: '遊戲未開始' });
+      return cb?.({ ok: false, message: '遊戲未開始' });
 
     const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1) return cb({ ok: false, message: '玩家不存在' });
+    if (playerIndex === -1) return cb?.({ ok: false, message: '玩家不存在' });
     if (playerIndex !== room.turnIndex)
-      return cb({ ok: false, message: '尚未輪到你' });
+      return cb?.({ ok: false, message: '尚未輪到你' });
 
     const player = room.players[playerIndex];
 
@@ -1238,38 +1553,36 @@ class GameManager {
 
     if (!state || state.playerIndex !== playerIndex) {
       room.jeiceState = null;
-      this.io
-        .to(socket.id)
-        .emit('jeiceCancelled', { message: '已取消吉斯流程' });
+      this.io.to(socket.id).emit('jeiceCancelled', { message: '已取消吉斯流程' });
 
       if (hasPlaced) {
         this._advanceTurn(room);
       }
 
       this._emitPlaced(roomId, room);
-      return cb({ ok: true });
+      this._emitTurnInfo(roomId, room);
+      return cb?.({ ok: true });
     }
 
     if (!state.placed) {
       player.usedJeiceThisTurn = true;
       room.jeiceState = null;
 
-      this.io
-        .to(socket.id)
-        .emit('jeiceCancelled', { message: '本回合不使用吉斯技能' });
+      this.io.to(socket.id).emit('jeiceCancelled', { message: '本回合不使用吉斯技能' });
 
       this._emitPlaced(roomId, room);
-      return cb({ ok: true });
+      this._emitTurnInfo(roomId, room);
+      return cb?.({ ok: true });
     }
 
     player.usedJeiceThisTurn = true;
     room.jeiceState = null;
 
     this._advanceTurn(room);
-
     this._emitPlaced(roomId, room);
+    this._emitTurnInfo(roomId, room);
 
-    return cb({ ok: true });
+    return cb?.({ ok: true });
   }
 
   // ================= Win Check =================
