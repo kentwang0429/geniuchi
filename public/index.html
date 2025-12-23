@@ -1417,12 +1417,12 @@
         sfx_victory: '/audio/sfx_victory_placeholder.mp3',
         sfx_ui_click: '/audio/sfx_ui_click_placeholder.mp3',
         voice_role: {
-          0: '/audio/voice_ginyu_placeholder.mp3',
-          1: '/audio/voice_burter_placeholder.mp3',
-          2: '/audio/voice_recoome_placeholder.mp3',
-          3: '/audio/voice_logan_placeholder.mp3',
-          4: '/audio/voice_guldo_placeholder.mp3',
-          5: '/audio/voice_jeice_placeholder.mp3',
+          0: '/audio/sfx_role_ginyu_name.mp3',
+          1: '/audio/sfx_role_burter_name.mp3',
+          2: '/audio/sfx_role_recoome_name.mp3',
+          3: '/audio/sfx_role_logan_name.mp3',
+          4: '/audio/sfx_role_guldo_name.mp3',
+          5: '/audio/sfx_role_jeice_name.mp3',
         },
         sfx_map: {
           ginyu_place: '/audio/sfx_ginyu_place_placeholder.mp3',
@@ -3667,11 +3667,16 @@
                     key: i,
                     className: cls,
                     onMouseEnter: () => {
-                      if (lockedIndex === null) setCurrent(i);
+                      if (lockedIndex === null) {
+                        setCurrent(i);
+                        try { audio?.playRoleVoice?.(i); } catch (e) {}
+                      }
                     },
                     onClick: () => {
+                      audio?.uiClick?.();
                       setCurrent(i);
                       setLockedIndex(i);
+                      try { audio?.playRoleVoice?.(i); } catch (e) {}
                     },
                   },
                   e(
