@@ -541,6 +541,35 @@
         }
       }
 
+      /* ✅ Mobile 音效面板（一顆按鈕開關） */
+      .audioPanel {
+        position: fixed;
+        right: 12px;
+        top: calc(58px + env(safe-area-inset-top));
+        z-index: 90;
+        width: min(220px, 78vw);
+        padding: 10px 12px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.55);
+      }
+      .audioPanel.game {
+        top: auto;
+        bottom: calc(140px + var(--vv-bottom) + env(safe-area-inset-bottom));
+      }
+      .audioRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.78);
+      }
+
       /* ===== 選角：全螢幕（mobile viewport safe）===== */
       .roleScreen {
         position: fixed;
@@ -758,7 +787,11 @@
         justify-content: center;
         border: 1px solid rgba(255, 255, 255, 0.16);
         background: rgba(0, 0, 0, 0.15);
+
+        /* ✅ 關鍵：讓選角卡右上角的形狀都有尺寸（除了★以外其他都需要 --piece） */
+        --piece: 26px;
       }
+
       .roleDesc {
         color: var(--muted);
         font-size: 14px;
@@ -1254,6 +1287,21 @@
         if (room.mode === 'DUAL') return slot === 2 ? player.roleIndex2 : player.roleIndex1;
         return player.roleIndex;
       }
+      // ✅ 同名回歸：先用 socket.id 找，找不到就用 name 找
+      function findMePlayer(r, socketId, myName) {
+        const list = r?.players || [];
+        const nm = String(myName || '').trim();
+        return (
+          list.find((p) => p?.id === socketId) ||
+          (nm ? list.find((p) => String(p?.name || '').trim() === nm) : null)
+        );
+      }
+
+      function isMyTurnByIdOrName(r, me) {
+        const tp = r?.players?.[r?.turnIndex];
+        if (!r || !me || !tp) return false;
+        return tp.id === me.id || (me.name && tp.name === me.name);
+      }
 
       /* ✅ visualViewport -> CSS vars */
       function setupVisualViewportVars() {
@@ -1281,7 +1329,7 @@
       }
 
       /* =========================================================
-         ✅ (7) 桌機游標：回合棋子 / 魔法棒 cursor（data-uri svg）
+         ✅ (7) 桌機游標：回合棋子 / 灰叉 / 魔法棒 cursor（data-uri svg）
          ========================================================= */
       function svgCursorData(svg) {
         const enc = encodeURIComponent(svg)
@@ -1292,7 +1340,6 @@
 
       function cursorPiece(shape, color) {
         const c = String(color || '#fff');
-        const stroke = 'rgba(255,255,255,0.6)';
         const svgHead =
           `<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'>` +
           `<rect x='1' y='1' width='30' height='30' rx='8' ry='8' fill='rgba(0,0,0,0.25)' stroke='rgba(255,255,255,0.25)'/>`;
@@ -1301,22 +1348,37 @@
         let body = '';
         if (shape === 'circle') body = `<circle cx='16' cy='16' r='7.2' fill='${c}' />`;
         else if (shape === 'square') body = `<rect x='9' y='9' width='14' height='14' fill='${c}' />`;
-        else if (shape === 'triangle')
-          body = `<path d='M16 8 L24 22 H8 Z' fill='${c}' />`;
+        else if (shape === 'triangle') body = `<path d='M16 8 L24 22 H8 Z' fill='${c}' />`;
         else if (shape === 'star')
           body =
             `<path d='M16 7.5 L18.7 13.1 L24.8 13.3 L19.9 17.0 L21.9 22.9 L16 19.8 L10.1 22.9 L12.1 17.0 L7.2 13.3 L13.3 13.1 Z' fill='${c}'/>`;
         else if (shape === 'logan')
           body =
-            `<circle cx='16' cy='16' r='6.5' fill='none' stroke='${c}' stroke-width='3'/>` +
-            `<path d='M10 10 L22 22' stroke='${c}' stroke-width='2.6'/>` +
-            `<path d='M22 10 L10 22' stroke='${c}' stroke-width='2.6'/>`;
+            // 圈圈縮小一點
+            `<circle cx='16' cy='16' r='5.6' fill='none' stroke='${c}' stroke-width='3'/>` +
+            // 叉叉放大：畫到更接近外側
+            `<path d='M7.8 7.8 L24.2 24.2' stroke='${c}' stroke-width='2.9' stroke-linecap='round'/>` +
+            `<path d='M24.2 7.8 L7.8 24.2' stroke='${c}' stroke-width='2.9' stroke-linecap='round'/>`;
+
         else if (shape === 'jeice')
           body =
-            `<path d='M12 8 L16 24 L20 8' fill='none' stroke='${c}' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/>`;
+            `<path d='M16 7 L4.4 25' fill='none' stroke='${c}' stroke-width='6.2' stroke-linecap='round'/>` +
+            `<path d='M16 7 L27.6 25' fill='none' stroke='${c}' stroke-width='6.2' stroke-linecap='round'/>`;
+
         else body = `<circle cx='16' cy='16' r='7.2' fill='${c}' />`;
 
         const svg = svgHead + body + svgTail;
+        return svgCursorData(svg);
+      }
+
+      function cursorGrayX(color) {
+        const c = String(color || '#cfcfcf');
+        const svg =
+          `<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'>` +
+          `<rect x='1' y='1' width='30' height='30' rx='8' ry='8' fill='rgba(0,0,0,0.25)' stroke='rgba(255,255,255,0.25)'/>` +
+          `<path d='M9 9 L23 23' stroke='${c}' stroke-width='4' stroke-linecap='round'/>` +
+          `<path d='M23 9 L9 23' stroke='${c}' stroke-width='4' stroke-linecap='round'/>` +
+          `</svg>`;
         return svgCursorData(svg);
       }
 
@@ -1332,8 +1394,21 @@
         return svgCursorData(svg);
       }
 
+      function darkenHex(hex, k = 0.6) {
+        try {
+          const h = String(hex || '').trim();
+          if (!h.startsWith('#') || h.length !== 7) return 'rgba(210,210,210,0.92)';
+          const r = Math.round(parseInt(h.slice(1, 3), 16) * k);
+          const g = Math.round(parseInt(h.slice(3, 5), 16) * k);
+          const b = Math.round(parseInt(h.slice(5, 7), 16) * k);
+          return `rgb(${r}, ${g}, ${b})`;
+        } catch (e) {
+          return 'rgba(210,210,210,0.92)';
+        }
+      }
+
       /* =========================================================
-         ✅ Audio（保留你原本架構，不改 key）
+         ✅ Audio（分離 BGM / SFX）
          ========================================================= */
       const AUDIO_ASSETS = {
         bgm_lobby: '/audio/chala_head_chala.mp3',
@@ -1371,7 +1446,8 @@
           this.onUnlocked = typeof onUnlocked === 'function' ? onUnlocked : () => {};
 
           this.unlocked = false;
-          this.muted = false;
+          this.bgmMuted = false;
+          this.sfxMuted = false;
           this._wantBgm = 'lobby';
 
           this.bgm = null;
@@ -1388,7 +1464,6 @@
           a.preload = 'auto';
           a.loop = !!loop;
           a.volume = clamp(volume, 0, 1);
-          a.muted = this.muted;
           return a;
         }
 
@@ -1443,7 +1518,7 @@
 
         async _safePlay(a) {
           if (!a) return false;
-          if (this.muted) return false;
+          if (this.bgmMuted) return false;
           try {
             await a.play();
             if (!this.unlocked) {
@@ -1475,25 +1550,29 @@
           this.bgmKind = null;
         }
 
-        setMuted(m) {
-          this.muted = !!m;
-
-          if (this.muted) {
+        setBgmMuted(m) {
+          this.bgmMuted = !!m;
+          if (this.bgmMuted) {
             this.stopAllBgm();
+            return;
+          }
+          this.resumeWantedBgm();
+        }
+
+        setSfxMuted(m) {
+          this.sfxMuted = !!m;
+          if (this.sfxMuted) {
             try {
               if (this.voice) {
                 this.voice.pause();
                 this.voice.currentTime = 0;
               }
             } catch (e) {}
-            return;
           }
-
-          this.resumeWantedBgm();
         }
 
         async resumeWantedBgm() {
-          if (this.muted) return;
+          if (this.bgmMuted) return;
           if (!this.unlocked) {
             const ok = await this.unlock();
             if (!ok) return;
@@ -1505,7 +1584,7 @@
 
         async startLobby() {
           this._wantBgm = 'lobby';
-          if (this.muted) return;
+          if (this.bgmMuted) return;
 
           if (this.bgmKind === 'lobby' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
@@ -1525,7 +1604,7 @@
 
         async startBattle() {
           this._wantBgm = 'battle';
-          if (this.muted) return;
+          if (this.bgmMuted) return;
 
           if (this.bgmKind === 'battle' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
@@ -1553,7 +1632,7 @@
           this.battleLoop = loop;
 
           intro.addEventListener('ended', async () => {
-            if (this.bgmKind !== 'battle' || this.muted) return;
+            if (this.bgmKind !== 'battle' || this.bgmMuted) return;
             this.bgm = loop;
             await this._safePlay(loop);
           });
@@ -1564,7 +1643,7 @@
 
         async startVictory() {
           this._wantBgm = 'victory';
-          if (this.muted) return;
+          if (this.bgmMuted) return;
 
           if (this.bgmKind === 'victory' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
@@ -1592,7 +1671,7 @@
         }
 
         playOnce(src, volume = 0.8) {
-          if (this.muted) return;
+          if (this.sfxMuted) return;
           if (!src) return;
           try {
             const a = this._makeAudio(src, { loop: false, volume });
@@ -1607,7 +1686,7 @@
         }
 
         playRoleVoice(roleIndex) {
-          if (this.muted) return;
+          if (this.sfxMuted) return;
           const src = AUDIO_ASSETS.voice_role?.[roleIndex];
           if (!src) return;
 
@@ -1679,7 +1758,8 @@
               });
             }
           }
-          const curIdx = (Number(room.turnSlot || 1) - 1) * players.length + Number(room.turnIndex || 0);
+          const curIdx =
+            (Number(room.turnSlot || 1) - 1) * players.length + Number(room.turnIndex || 0);
           currentKey = items[curIdx]?.key || null;
         } else {
           for (let i = 0; i < players.length; i++) {
@@ -1737,6 +1817,12 @@
         const [board, setBoard] = React.useState([]);
         const [name, setName] = React.useState('');
 
+        // ✅ 讓 socket callback 永遠拿到最新 name（同名回歸很重要）
+        const nameRef = React.useRef('');
+        React.useEffect(() => {
+          nameRef.current = name;
+        }, [name]);
+
         const [selectedColor, setSelectedColor] = React.useState(null);
 
         // ✅ DUAL：角色1/角色2
@@ -1758,7 +1844,7 @@
         const [jeiceMode, setJeiceMode] = React.useState(false);
         const [jeiceStep, setJeiceStep] = React.useState('idle'); // idle | place | selectTarget
 
-        // ✅ 回合 UI 資訊（含顏色/形狀）
+        // ✅ 回合 UI 資訊
         const [turnMeta, setTurnMeta] = React.useState(null);
 
         const [copied, setCopied] = React.useState(false);
@@ -1790,7 +1876,9 @@
         const audioRef = React.useRef(null);
         const [audioBlocked, setAudioBlocked] = React.useState(false);
         const [audioUnlocked, setAudioUnlocked] = React.useState(false);
-        const [audioMuted, setAudioMuted] = React.useState(false);
+        const [bgmMuted, setBgmMuted] = React.useState(false);
+        const [sfxMuted, setSfxMuted] = React.useState(false);
+        const [audioPanelOpen, setAudioPanelOpen] = React.useState(false);
 
         // ✅ (4) 技能說明：手機抽屜
         const [helpOpen, setHelpOpen] = React.useState(false);
@@ -1814,32 +1902,34 @@
 
         const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
 
-        async function handleAudioButton() {
+        async function ensureUnlocked() {
           const am = audioRef.current;
-          if (!am) return;
-
-          if (!am.unlocked) {
-            const ok = await am.unlock();
-            if (ok) {
-              setAudioUnlocked(true);
-              setAudioBlocked(false);
-
-              am.setMuted(audioMuted);
-              if (audioMuted) return;
-
+          if (!am) return false;
+          if (am.unlocked) return true;
+          const ok = await am.unlock();
+          if (ok) {
+            setAudioUnlocked(true);
+            setAudioBlocked(false);
+            // 解鎖後，若 BGM 未靜音，依當前狀態啟動
+            if (!bgmMuted) {
               if (postGameRef.current) am.startVictory();
               else if (viewRef.current === 'GAME' && roomRef.current?.status === 'PLAYING') am.startBattle();
               else am.startLobby();
-            } else {
-              setAudioBlocked(true);
             }
-            return;
+            return true;
           }
+          setAudioBlocked(true);
+          return false;
+        }
 
-          const next = !audioMuted;
-          setAudioMuted(next);
-          am.setMuted(next);
-
+        async function toggleBgm() {
+          const am = audioRef.current;
+          if (!am) return;
+          const ok = await ensureUnlocked();
+          if (!ok) return;
+          const next = !bgmMuted;
+          setBgmMuted(next);
+          am.setBgmMuted(next);
           if (!next) {
             if (postGameRef.current) am.startVictory();
             else if (viewRef.current === 'GAME' && roomRef.current?.status === 'PLAYING') am.startBattle();
@@ -1847,9 +1937,23 @@
           }
         }
 
-        function audioBtnLabel() {
-          if (!audioUnlocked) return audioBlocked ? '🔊 啟用音效' : '🔊 音效';
-          return audioMuted ? '🔇 音效：關' : '🔊 音效：開';
+        async function toggleSfx() {
+          const am = audioRef.current;
+          if (!am) return;
+          const ok = await ensureUnlocked();
+          if (!ok) return;
+          const next = !sfxMuted;
+          setSfxMuted(next);
+          am.setSfxMuted(next);
+        }
+
+        function bgmLabel() {
+          if (!audioUnlocked) return audioBlocked ? '🎵BGM（點一下解鎖）' : '🎵BGM';
+          return bgmMuted ? '🎵BGM：關' : '🎵BGM：開';
+        }
+        function sfxLabel() {
+          if (!audioUnlocked) return audioBlocked ? '🔈SFX（點一下解鎖）' : '🔈SFX';
+          return sfxMuted ? '🔈SFX：關' : '🔈SFX：開';
         }
 
         // ✅ socket 只連一次（避免玩家不存在）
@@ -1865,6 +1969,7 @@
             },
           });
 
+          // 先嘗試 lobby（若被阻擋會顯示需要 gesture）
           audioRef.current.startLobby();
 
           const tryUnlock = async () => {
@@ -1872,7 +1977,7 @@
             if (!am || am.unlocked) return;
             const ok = await am.unlock();
             if (ok) {
-              if (audioMuted) return;
+              if (bgmMuted) return;
               const r = roomRef.current;
               const v = viewRef.current;
               const pg = postGameRef.current;
@@ -1916,23 +2021,22 @@
 
             // 同步自己選到的顏色/角色
             try {
-              const me2 = r?.players?.find((p) => p.id === s.id);
-              if (me2) {
-                if (typeof me2.colorIndex === 'number') setSelectedColor(me2.colorIndex);
-                else setSelectedColor(null);
+              const me2 = findMePlayer(r, s.id, nameRef.current);
+                if (me2) {
+                  if (typeof me2.colorIndex === 'number') setSelectedColor(me2.colorIndex);
+                  else setSelectedColor(null);
 
-                if (r?.mode === 'DUAL') {
-                  setSelectedRole1(typeof me2.roleIndex1 === 'number' ? me2.roleIndex1 : null);
-                  setSelectedRole2(typeof me2.roleIndex2 === 'number' ? me2.roleIndex2 : null);
-                } else {
-                  setSelectedRole1(typeof me2.roleIndex === 'number' ? me2.roleIndex : null);
-                  setSelectedRole2(null);
+                  if (r?.mode === 'DUAL') {
+                    setSelectedRole1(typeof me2.roleIndex1 === 'number' ? me2.roleIndex1 : null);
+                    setSelectedRole2(typeof me2.roleIndex2 === 'number' ? me2.roleIndex2 : null);
+                  } else {
+                    setSelectedRole1(typeof me2.roleIndex === 'number' ? me2.roleIndex : null);
+                    setSelectedRole2(null);
+                  }
                 }
-              }
             } catch (e) {}
 
-            // ✅ (1) 修正：你正在 ROLE 選角時，不要被 roomUpdated 強制切回 ROOM/GAME
-            //    只更新資料，不動 view，避免「別人選角→你畫面中斷」
+            // ✅ ROLE 選角中：不切畫面
             const curView = viewRef.current;
 
             // ✅ postGame 期間：不覆蓋棋盤、不切 view
@@ -1975,6 +2079,13 @@
                 status: payload.status || base.status,
               };
             });
+            // ✅ turnMeta 同步：只存到 room；畫面一律用 updateTurnInfo(r) 組 turnMeta
+            //    （避免後端 turnMeta 欄位不齊導致 UI 顯示 undefined）
+            if (payload.turnMeta) {
+              if (roomRef.current) roomRef.current.turnMeta = payload.turnMeta;
+              setRoom((prev) => (prev ? { ...prev, turnMeta: payload.turnMeta } : prev));
+            }
+
 
             // ✅ Jeice FX（由 server 傳 effect）
             if (payload?.effect?.type === 'jeice') {
@@ -2049,11 +2160,11 @@
           };
         }, []);
 
-        // ✅ BGM 自動切換：Lobby / Battle / Victory
+        // ✅ BGM 自動切換：Lobby / Battle / Victory（只管 BGM）
         React.useEffect(() => {
           const am = audioRef.current;
           if (!am) return;
-          if (!am.unlocked || audioMuted) return;
+          if (!am.unlocked || bgmMuted) return;
 
           if (postGame) {
             am.startVictory();
@@ -2069,7 +2180,7 @@
             am.startLobby();
             return;
           }
-        }, [view, room?.status, postGame, audioMuted]);
+        }, [view, room?.status, postGame, bgmMuted]);
 
         React.useEffect(() => {
           return () => {
@@ -2084,9 +2195,11 @@
             setTurnMeta(null);
             return;
           }
+
           const turnPlayer = r.players[r.turnIndex];
           const slot = r.mode === 'DUAL' ? r.turnSlot || 1 : 1;
-          const roleIdx = getPlayerRoleIndex(r, turnPlayer, slot);
+
+          let roleIdx = getPlayerRoleIndex(r, turnPlayer, slot);
           const roleName = typeof roleIdx === 'number' ? ROLES[roleIdx]?.name : '未選角';
           const shape = typeof roleIdx === 'number' ? ROLES[roleIdx]?.shape : 'circle';
 
@@ -2095,6 +2208,15 @@
               ? COLORS[turnPlayer.colorIndex]
               : 'rgba(255,255,255,0.45)';
 
+          // ✅ 關鍵：placedThisTurn 優先吃後端 turnMeta 的值（若有）
+          const pt =
+            typeof r?.turnMeta?.placedThisTurn === 'number'
+              ? r.turnMeta.placedThisTurn
+              : Number(turnPlayer?.placedThisTurn || 0);
+
+          // （可選）如果你後端 turnMeta 也有 roleIndex，且你想以它為準：
+          if (typeof r?.turnMeta?.roleIndex === 'number') roleIdx = r.turnMeta.roleIndex;
+
           setTurnMeta({
             round: r.roundCount || 1,
             playerName: turnPlayer?.name || 'N/A',
@@ -2102,15 +2224,19 @@
             roleName,
             shape,
             color,
+            roleIndex: typeof roleIdx === 'number' ? roleIdx : null,
+            turnPlayerId: turnPlayer?.id || null,
+            placedThisTurn: pt,
           });
         }
+
 
         function startPostGame(winnerName, finalBoard) {
           if (postGameTimerRef.current) clearInterval(postGameTimerRef.current);
 
           setPostGame({ winnerName, secondsLeft: 10, finalBoard });
 
-          if (!audioMuted && audioRef.current?.unlocked) audioRef.current?.startVictory();
+          if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startVictory();
 
           let left = 10;
           postGameTimerRef.current = setInterval(() => {
@@ -2124,11 +2250,11 @@
           }, 1000);
         }
 
-        // ✅ 回到同房 Lobby（會通知 server restartGame，確保狀態真的回 Lobby）
+        // ✅ 回到同房 Lobby
         function backToRoom() {
           audioRef.current?.uiClick();
           audioRef.current?.stopVictory();
-          if (!audioMuted && audioRef.current?.unlocked) audioRef.current?.startLobby();
+          if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startLobby();
 
           if (postGameTimerRef.current) {
             clearInterval(postGameTimerRef.current);
@@ -2136,7 +2262,6 @@
           }
           setPostGame(null);
 
-          // ✅ 通知 server 重置成 LOBBY（你舊版是靠 server 自動回 Lobby；這裡改為更穩）
           const rid = roomRef.current?.id;
           if (socket && rid) {
             socket.emit('restartGame', { roomId: rid });
@@ -2188,7 +2313,7 @@
             setRoom(null);
             setBoard([]);
             setView('ENTRY');
-            if (!audioMuted && audioRef.current?.unlocked) audioRef.current?.startLobby();
+            if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startLobby();
             return;
           }
           socket.emit('leaveRoom', { roomId: rid }, (res) => {
@@ -2202,8 +2327,9 @@
             setSelectedRole1(null);
             setSelectedRole2(null);
             setHelpOpen(false);
+            setAudioPanelOpen(false);
             setView('ENTRY');
-            if (!audioMuted && audioRef.current?.unlocked) audioRef.current?.startLobby();
+            if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startLobby();
           });
         }
 
@@ -2272,7 +2398,8 @@
           if (selectedColor === null) return alert('請先選擇顏色');
 
           if (room?.mode === 'DUAL') {
-            if (selectedRole1 === null || selectedRole2 === null) return alert('DUAL 模式請先選擇 角色1 與 角色2');
+            if (selectedRole1 === null || selectedRole2 === null)
+              return alert('DUAL 模式請先選擇 角色1 與 角色2');
           } else {
             if (selectedRole1 === null) return alert('請先選擇角色');
           }
@@ -2313,17 +2440,60 @@
           audioRef.current?.playSfxKey('undo');
           const rid = room?.id;
           if (!rid) return;
+
           socket.emit('undoMove', { roomId: rid }, (res) => {
             if (!res?.ok) {
               if (res?.message) alert(res.message);
               return;
             }
-            if (res.board && !postGameRef.current) {
+
+            // postGame 期間不處理
+            if (postGameRef.current) return;
+
+            // ✅ 1) 後端若回 room：以 room 為準（同步 turn/players/placedThisTurn/turnMeta）
+            if (res.room) {
+              try { roomRef.current = res.room; } catch (e) {}
+              setRoom(res.room);
+              setBoard(res.room.board || []);
+              updateTurnInfo(res.room);
+            }
+            // ✅ 2) 後端若只回 board：至少更新 board；其餘欄位能接就接
+            else if (res.board) {
               setBoard(res.board);
-              setRoom((prev) => (prev ? { ...prev, board: res.board } : prev));
+
+              // setRoom（React state）
+              setRoom((prev) => {
+                if (!prev) return prev;
+                const next = { ...prev, board: res.board };
+
+                if (typeof res.turnIndex === 'number') next.turnIndex = res.turnIndex;
+                if (typeof res.turnSlot === 'number') next.turnSlot = res.turnSlot;
+                if (typeof res.roundCount === 'number') next.roundCount = res.roundCount;
+                if (res.status) next.status = res.status;
+                if (res.turnMeta) next.turnMeta = res.turnMeta;
+
+                return next;
+              });
+
+              // roomRef（避免 UI/判斷用到舊值）
+              if (roomRef.current) {
+                roomRef.current = {
+                  ...roomRef.current,
+                  board: res.board,
+                  turnIndex: typeof res.turnIndex === 'number' ? res.turnIndex : roomRef.current.turnIndex,
+                  turnSlot: typeof res.turnSlot === 'number' ? res.turnSlot : roomRef.current.turnSlot,
+                  roundCount: typeof res.roundCount === 'number' ? res.roundCount : roomRef.current.roundCount,
+                  status: res.status || roomRef.current.status,
+                  turnMeta: res.turnMeta || roomRef.current.turnMeta,
+                };
+                updateTurnInfo(roomRef.current);
+              }
+            } else {
+              // 什麼都沒回就至少刷新一次 turn info
+              updateTurnInfo(roomRef.current || room);
             }
 
-            // 清掉技能狀態（避免悔棋後 UI 還在技能步驟）
+            // 清掉技能狀態
             setHighlightSources([]);
             setHighlightTargets([]);
             setHighlightGudo([]);
@@ -2337,14 +2507,19 @@
             setHighlightJeiceSource(null);
             setJeiceMode(false);
             setJeiceStep('idle');
+
+            // ✅ 最後保險再刷新一次（避免 UI 殘留）
+            updateTurnInfo(roomRef.current || room);
           });
         }
+
 
         // ✅ 吉斯：每回合預設自動啟動（保持你原本）
         React.useEffect(() => {
           if (!socket || !room || room.status !== 'PLAYING') return;
-          const me = room.players?.find((p) => p.id === socket.id);
-          const isMyTurn = room.players?.[room.turnIndex]?.id === socket.id;
+          const me = findMePlayer(room, socket?.id, name);
+          const isMyTurn = room && me && room.turnIndex !== undefined && isMyTurnByIdOrName(room, me);
+
           if (!isMyTurn || !me) return;
 
           const slot = room.mode === 'DUAL' ? room.turnSlot || 1 : 1;
@@ -2568,9 +2743,9 @@
           });
         }
 
-        const me = room?.players?.find((p) => p.id === socket?.id);
-        const isMyTurn =
-          room && me && room.turnIndex !== undefined && room.players[room.turnIndex]?.id === me.id;
+        const me = findMePlayer(room, socket?.id, name);
+        const isMyTurn = !!(room && me && room.turnIndex !== undefined && isMyTurnByIdOrName(room, me));
+
 
         const activeSlot = room?.mode === 'DUAL' ? room.turnSlot || 1 : 1;
         const myActiveRoleIndex = isMyTurn ? getPlayerRoleIndex(room, me, activeSlot) : null;
@@ -2623,30 +2798,108 @@
           return clamp(Math.round(cellSize * 0.78), 18, 28);
         }, [cellSize]);
 
-        // ✅ (7) 桌機 hover 棋盤：游標變回合棋子 / 技能中變魔法棒
+        // ✅ (7) 桌機 hover 棋盤：游標變回合棋子 / 羅根第二步=灰叉 / 技能中=魔法棒
         const boardCursor = React.useMemo(() => {
           const fine = !isCoarse && view === 'GAME' && vp.w >= 920;
           if (!fine) return null;
 
-          if (ginyuMode || gudoMode || jeiceMode) return cursorWand();
+          if (!room || room.status !== 'PLAYING') return null;
 
-          if (turnMeta?.shape && turnMeta?.color) {
-            return cursorPiece(turnMeta.shape, turnMeta.color);
+          // ✅ 不是你回合：不要顯示棋子游標（避免顯示別人的棋）
+          const meLocal = findMePlayer(room, socket?.id, name);
+          const nowMyTurn = isMyTurnByIdOrName(room, meLocal);
+          if (!nowMyTurn) return null;
+
+          // ✅ 技能中游標：
+          // - 基紐/古杜：一律魔法棒
+          if (ginyuMode || gudoMode) return cursorWand();
+
+          // - 吉斯：只有「落子後要選擊退目標」才顯示魔法棒；
+          //        「落子階段」仍顯示吉斯棋子游標
+          if (jeiceMode && jeiceStep === 'selectTarget') return cursorWand();
+
+          // ✅ 用 turnMeta（最準，undo/placed 都會更新）
+          const tp = room.players?.[room.turnIndex];
+          const baseColor =
+            (turnMeta && turnMeta.color) ||
+            (typeof tp?.colorIndex === 'number' ? COLORS[tp.colorIndex] : '#cfcfcf');
+
+          const roleIdx =
+            (turnMeta && typeof turnMeta.roleIndex === 'number')
+              ? turnMeta.roleIndex
+              : (() => {
+                  const slot = room.mode === 'DUAL' ? room.turnSlot || 1 : 1;
+                  return tp ? getPlayerRoleIndex(room, tp, slot) : null;
+                })();
+
+          const placed =
+            (turnMeta && typeof turnMeta.placedThisTurn === 'number')
+              ? Number(turnMeta.placedThisTurn || 0)
+              : Number(tp?.placedThisTurn || 0);
+
+          // ✅ 羅根第二步：灰叉（悔棋後 placed 會回到 0，游標自然回第一子）
+          if (roleIdx === 3 && placed === 1) {
+            return cursorGrayX(darkenHex(baseColor, 0.6));
           }
-          return null;
-        }, [isCoarse, view, vp.w, ginyuMode, gudoMode, jeiceMode, turnMeta?.shape, turnMeta?.color]);
+
+          const shape =
+            (turnMeta && turnMeta.shape) ||
+            (typeof roleIdx === 'number' ? ROLES[roleIdx]?.shape : 'circle');
+
+          return cursorPiece(shape, baseColor);
+        }, [
+          isCoarse,
+          view,
+          vp.w,
+          ginyuMode,
+          gudoMode,
+          jeiceMode,
+          jeiceStep,
+          room,
+          socket?.id,
+          name,
+          turnMeta,
+        ]);
+
 
         // ======= UI =======
         const inRoom = !!room?.id;
         const rootClass = 'appRoot' + (isGameMobile ? ' isGameMobile' : '');
 
         // ✅ 悔棋條件：巴特(1) / 羅根(3)，且 placedThisTurn===1（第二步前）
+        // ✅ 改用 turnMeta（因為 placed event 不會更新 room.players）
         const canUndo =
-          !!(room && me && isMyTurn && (myActiveRoleIndex === 1 || myActiveRoleIndex === 3) && Number(me.placedThisTurn || 0) === 1);
+          !!(
+            turnMeta &&
+            isMyTurn &&
+            (turnMeta.roleIndex === 1 || turnMeta.roleIndex === 3) &&
+            Number(turnMeta.placedThisTurn || 0) === 1
+          );
+
+        // ✅ 只讓「巴特 / 羅根」看到悔棋按鈕（其他角色完全不顯示）
+        const showUndoBtn = !!(
+          isMyTurn &&
+          (myActiveRoleIndex === 1 || myActiveRoleIndex === 3)
+        );
+
+        const showMobileAudioUi = isCoarse || vp.w < 920;
+
 
         return e(
           'div',
           { className: rootClass },
+
+          // ✅ Mobile audio panel overlay
+          audioPanelOpen &&
+            e(
+              'div',
+              { className: 'audioPanel' + (isGameMobile ? ' game' : '') },
+              e('div', { className: 'audioRow' }, e('span', null, 'BGM'), e('button', { className: 'tinyBtn', onClick: toggleBgm }, bgmLabel())),
+              e('div', { className: 'audioRow' }, e('span', null, 'SFX'), e('button', { className: 'tinyBtn', onClick: toggleSfx }, sfxLabel())),
+              audioBlocked && !audioUnlocked
+                ? e('div', { className: 'hint' }, '提示：若無聲音，先點一下 BGM/SFX 以解鎖瀏覽器播放。')
+                : null
+            ),
 
           // ✅ (6) 輪到你了 Toast
           myTurnToast
@@ -2699,7 +2952,27 @@
               'div',
               { className: 'row' },
               e('div', { className: 'pill' }, socket?.id ? `你已連線` : '連線中…'),
-              e('button', { className: 'tinyBtn', onClick: handleAudioButton, title: '音效控制（啟用 / 靜音）' }, audioBtnLabel())
+              showMobileAudioUi
+                ? e(
+                    'button',
+                    {
+                      className: 'tinyBtn',
+                      onClick: async () => {
+                        audioRef.current?.uiClick();
+                        // 先嘗試解鎖一次
+                        await ensureUnlocked();
+                        setAudioPanelOpen((v) => !v);
+                      },
+                      title: '音效面板',
+                    },
+                    '🔊'
+                  )
+                : e(
+                    React.Fragment,
+                    null,
+                    e('button', { className: 'tinyBtn', onClick: toggleBgm, title: '背景音樂 BGM' }, bgmLabel()),
+                    e('button', { className: 'tinyBtn', onClick: toggleSfx, title: '音效 SFX' }, sfxLabel())
+                  )
             )
           ),
 
@@ -2896,7 +3169,19 @@
                       e(
                         'div',
                         { className: 'dockRight' },
-                        e('button', { className: 'tinyBtn', onClick: handleAudioButton }, audioBtnLabel()),
+                        // ✅ 手機：一顆音效按鈕（展開面板）
+                        e(
+                          'button',
+                          {
+                            className: 'tinyBtn',
+                            onClick: async () => {
+                              audioRef.current?.uiClick();
+                              await ensureUnlocked();
+                              setAudioPanelOpen((v) => !v);
+                            },
+                          },
+                          '🔊'
+                        ),
                         e('button', { className: 'tinyBtn', onClick: leaveRoom }, '退出房間')
                       )
                     ),
@@ -2945,8 +3230,15 @@
                         ? e('button', { onClick: cancelJeice, className: 'ghost' }, '取消吉斯')
                         : null,
 
-                      // ✅ (2) 巴特/羅根 悔棋
-                      canUndo ? e('button', { onClick: undoMove, style: { background: 'rgba(255,255,255,0.14)' } }, '悔棋') : null,
+                      // ✅ 悔棋 UI：只給 巴特/羅根 顯示；可用與否照 canUndo
+                      showUndoBtn
+                        ? e(
+                            'button',
+                            { onClick: undoMove, disabled: !canUndo, style: { background: 'rgba(255,255,255,0.14)' } },
+                            '悔棋'
+                          )
+                        : null,
+
 
                       // ✅ (4) 手機技能說明抽屜
                       e('button', { className: 'tinyBtn', onClick: () => setHelpOpen((v) => !v) }, helpOpen ? '收起說明' : '技能說明')
@@ -3018,10 +3310,9 @@
                         : null,
                       isMyTurn && myActiveRoleIndex === 5 && jeiceMode ? e('button', { onClick: cancelJeice, className: 'ghost' }, '取消吉斯') : null,
 
-                      // ✅ (2) 悔棋按鈕
-                      canUndo ? e('button', { onClick: undoMove }, '悔棋') : null,
+                      // ✅ 悔棋 UI：只給 巴特/羅根 顯示；可用與否照 canUndo
+                      showUndoBtn ? e('button', { onClick: undoMove, disabled: !canUndo }, '悔棋') : null
 
-                      e('button', { className: 'tinyBtn', onClick: handleAudioButton }, audioBtnLabel())
                     ),
 
                     e(
@@ -3037,7 +3328,7 @@
                           : '吉斯：點紅色虛線目標擊退；點其他地方可放棄擊退。'
                         : canUndo
                         ? '提示：巴特/羅根在第二步前可悔棋。'
-                        : '提示：桌機游標會顯示本回合棋子；技能中游標為魔法棒。'
+                        : '提示：桌機游標會顯示本回合棋子；羅根第二步顯示灰叉；技能中游標為魔法棒。'
                     )
                   ),
 
@@ -3090,9 +3381,7 @@
               audio: audioRef.current,
             }),
 
-          // ===== PostGame Overlay ==
-
-
+          // ===== PostGame Overlay =====
           postGame &&
             e(
               'div',
@@ -3100,53 +3389,28 @@
               e(
                 'div',
                 { className: 'box' },
-                e(
-                  'div',
-                  { className: 'title' },
-                  `🏆 勝利者：${postGame.winnerName}`
-                ),
+                e('div', { className: 'title' }, `🏆 勝利者：${postGame.winnerName}`),
                 e(
                   'div',
                   { className: 'sub' },
                   `棋局將在 ${postGame.secondsLeft} 秒後回到房間並重新選角（可先按下方按鈕）`
                 ),
-                e(
-                  'button',
-                  { className: 'btn', onClick: backToRoom },
-                  '返回房間'
-                )
+                e('button', { className: 'btn', onClick: backToRoom }, '返回房間')
               )
             )
         );
       }
 
-      function RoleSelectScreen({
-        room,
-        slot,
-        selectedRole,
-        selectedOtherRole,
-        onClose,
-        onConfirm,
-        audio,
-      }) {
+      function RoleSelectScreen({ room, slot, selectedRole, selectedOtherRole, onClose, onConfirm, audio }) {
         const n = ROLES.length;
-        const [current, setCurrent] = React.useState(
-          typeof selectedRole === 'number' ? selectedRole : 0
-        );
+        const [current, setCurrent] = React.useState(typeof selectedRole === 'number' ? selectedRole : 0);
 
         const [lockedIndex, setLockedIndex] = React.useState(null);
 
         const [dragPx, setDragPx] = React.useState(0);
         const dragPxRef = React.useRef(0);
         const rafRef = React.useRef(0);
-        const dragRef = React.useRef({
-          down: false,
-          x0: 0,
-          lastX: 0,
-          lastT: 0,
-          v: 0,
-          pointerId: null,
-        });
+        const dragRef = React.useRef({ down: false, x0: 0, lastX: 0, lastT: 0, v: 0, pointerId: null });
 
         const snapPxRef = React.useRef(260);
 
@@ -3251,21 +3515,11 @@
 
         const others = (room?.players || []).map((p) => {
           if (room?.mode === 'DUAL') {
-            const r1 =
-              typeof p.roleIndex1 === 'number'
-                ? ROLES[p.roleIndex1]?.name
-                : null;
-            const r2 =
-              typeof p.roleIndex2 === 'number'
-                ? ROLES[p.roleIndex2]?.name
-                : null;
-            return {
-              name: p.name || 'Player',
-              role: `1:${r1 || '—'} 2:${r2 || '—'}`,
-            };
+            const r1 = typeof p.roleIndex1 === 'number' ? ROLES[p.roleIndex1]?.name : null;
+            const r2 = typeof p.roleIndex2 === 'number' ? ROLES[p.roleIndex2]?.name : null;
+            return { name: p.name || 'Player', role: `1:${r1 || '—'} 2:${r2 || '—'}` };
           }
-          const rn =
-            typeof p.roleIndex === 'number' ? ROLES[p.roleIndex]?.name : null;
+          const rn = typeof p.roleIndex === 'number' ? ROLES[p.roleIndex]?.name : null;
           return { name: p.name || 'Player', role: rn || '選角中' };
         });
 
@@ -3274,10 +3528,7 @@
         const snapPx = snapPxRef.current;
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
 
-        const blocked =
-          room?.mode === 'DUAL' && typeof selectedOtherRole === 'number'
-            ? selectedOtherRole
-            : null;
+        const blocked = room?.mode === 'DUAL' && typeof selectedOtherRole === 'number' ? selectedOtherRole : null;
 
         return e(
           'div',
@@ -3292,27 +3543,13 @@
               e(
                 'div',
                 { className: 'brand' },
-                e(
-                  'div',
-                  { className: 'title' },
-                  room?.mode === 'DUAL' ? `選擇角色（角色${slot}）` : '選擇角色'
-                ),
-                e(
-                  'div',
-                  { className: 'sub' },
-                  '手機：滑動選卡｜桌機：點擊鎖定（避免滑鼠移動誤選）'
-                )
+                e('div', { className: 'title' }, room?.mode === 'DUAL' ? `選擇角色（角色${slot}）` : '選擇角色'),
+                e('div', { className: 'sub' }, '手機：滑動選卡｜桌機：點擊鎖定（避免滑鼠移動誤選）')
               ),
               e(
                 'div',
                 { className: 'miniList' },
-                others.map((o, idx) =>
-                  e(
-                    'div',
-                    { key: idx, className: 'miniChip' },
-                    `${o.name}：${o.role}`
-                  )
-                )
+                others.map((o, idx) => e('div', { key: idx, className: 'miniChip' }, `${o.name}：${o.role}`))
               )
             ),
             e(
@@ -3334,12 +3571,7 @@
 
             e(
               'div',
-              {
-                className: 'carousel',
-                onPointerDown,
-                onPointerMove,
-                onPointerUp,
-              },
+              { className: 'carousel', onPointerDown, onPointerMove, onPointerUp },
               e(
                 'div',
                 { className: 'carouselInner' },
@@ -3356,8 +3588,7 @@
                   const ry = clamp(de, -2, 2) * 12;
                   const rz = clamp(de, -2, 2) * -3.5;
 
-                  const opacity =
-                    ae < 0.35 ? 1.0 : ae < 1.2 ? 0.22 : ae < 2.1 ? 0.06 : 0;
+                  const opacity = ae < 0.35 ? 1.0 : ae < 1.2 ? 0.22 : ae < 2.1 ? 0.06 : 0;
                   const blur = ae < 0.35 ? 0 : ae < 1.2 ? 0.6 : 1.2;
                   const sat = ae < 0.35 ? 1.08 : 0.85;
                   const contrast = ae < 0.35 ? 1.06 : 0.95;
@@ -3373,12 +3604,8 @@
                       ? 'none'
                       : 'transform 220ms cubic-bezier(.2,.9,.2,1), opacity 220ms ease, filter 220ms ease',
                     pointerEvents: isCenter ? 'auto' : 'none',
-                    boxShadow: isCenter
-                      ? '0 34px 90px rgba(0,0,0,0.62)'
-                      : '0 18px 55px rgba(0,0,0,0.45)',
-                    borderColor: isCenter
-                      ? 'rgba(255,255,255,0.28)'
-                      : 'rgba(255,255,255,0.12)',
+                    boxShadow: isCenter ? '0 34px 90px rgba(0,0,0,0.62)' : '0 18px 55px rgba(0,0,0,0.45)',
+                    borderColor: isCenter ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.12)',
                   };
 
                   if (opacity === 0) {
@@ -3399,22 +3626,13 @@
                       'div',
                       { className: 'roleCardHeader' },
                       e('div', { className: 'roleName' }, r.name),
-                      e(
-                        'div',
-                        { className: 'roleIcon' },
-                        e('div', {
-                          className: r.shape,
-                          style: { color: '#fff' },
-                        })
-                      )
+                      e('div', { className: 'roleIcon' }, e('div', { className: r.shape, style: { color: '#fff' } }))
                     ),
                     e(
                       'div',
                       { className: 'roleDesc' },
                       r.desc,
-                      blocked !== null && blocked === i
-                        ? '（⚠️ 你的另一個角色已選這個，不能重複）'
-                        : ''
+                      blocked !== null && blocked === i ? '（⚠️ 你的另一個角色已選這個，不能重複）' : ''
                     ),
                     e(
                       'div',
@@ -3423,15 +3641,7 @@
                         'div',
                         { className: 'stat' },
                         e('div', null, '定位'),
-                        e(
-                          'b',
-                          null,
-                          i === 1 || i === 5
-                            ? '進攻'
-                            : i === 0 || i === 4
-                            ? '操作'
-                            : '控制'
-                        )
+                        e('b', null, i === 1 || i === 5 ? '進攻' : i === 0 || i === 4 ? '操作' : '控制')
                       ),
                       e(
                         'div',
@@ -3468,19 +3678,13 @@
                     'div',
                     { className: 'roleCardHeader' },
                     e('div', { className: 'roleName' }, r.name),
-                    e(
-                      'div',
-                      { className: 'roleIcon' },
-                      e('div', { className: r.shape, style: { color: '#fff' } })
-                    )
+                    e('div', { className: 'roleIcon' }, e('div', { className: r.shape, style: { color: '#fff' } }))
                   ),
                   e(
                     'div',
                     { className: 'roleDesc' },
                     r.desc,
-                    blocked !== null && blocked === i
-                      ? '（⚠️ 你的另一個角色已選這個，不能重複）'
-                      : ''
+                    blocked !== null && blocked === i ? '（⚠️ 你的另一個角色已選這個，不能重複）' : ''
                   )
                 );
               })
@@ -3493,9 +3697,7 @@
             e(
               'div',
               { className: 'hint', style: { maxWidth: '48%' } },
-              lockedIndex === null
-                ? `目前選擇：${role?.name || '—'}（桌機：點一下可鎖定）`
-                : `已鎖定：${role?.name || '—'}（可點其他卡改選）`
+              lockedIndex === null ? `目前選擇：${role?.name || '—'}（桌機：點一下可鎖定）` : `已鎖定：${role?.name || '—'}（可點其他卡改選）`
             ),
             e(
               'button',
@@ -3531,6 +3733,7 @@
         fx,
         cellSize,
         pieceSize,
+        cursor,
       }) {
         const size = board.length;
         const cells = [];
@@ -3544,25 +3747,14 @@
             const v = board[y][x];
 
             let className = 'cell';
-            if (highlightSources.some((p) => p.x === x && p.y === y))
-              className += ' highlight-source';
-            if (highlightTargets.some((p) => p.x === x && p.y === y))
-              className += ' highlight-target';
-            if (highlightGudo.some((p) => p.x === x && p.y === y))
-              className += ' highlight-gudo';
-            if (highlightGudoTargets.some((p) => p.x === x && p.y === y))
-              className += ' highlight-gudo-target';
-            if (highlightGudoSelf.some((p) => p.x === x && p.y === y))
-              className += ' highlight-gudo-self';
+            if (highlightSources.some((p) => p.x === x && p.y === y)) className += ' highlight-source';
+            if (highlightTargets.some((p) => p.x === x && p.y === y)) className += ' highlight-target';
+            if (highlightGudo.some((p) => p.x === x && p.y === y)) className += ' highlight-gudo';
+            if (highlightGudoTargets.some((p) => p.x === x && p.y === y)) className += ' highlight-gudo-target';
+            if (highlightGudoSelf.some((p) => p.x === x && p.y === y)) className += ' highlight-gudo-self';
 
-            if (highlightJeiceTargets.some((p) => p.x === x && p.y === y))
-              className += ' highlight-jeice-target';
-            if (
-              highlightJeiceSource &&
-              highlightJeiceSource.x === x &&
-              highlightJeiceSource.y === y
-            )
-              className += ' highlight-jeice-source';
+            if (highlightJeiceTargets.some((p) => p.x === x && p.y === y)) className += ' highlight-jeice-target';
+            if (highlightJeiceSource && highlightJeiceSource.x === x && highlightJeiceSource.y === y) className += ' highlight-jeice-source';
 
             if (isFxCell(fx?.target, x, y)) className += ' fx-shake';
             if (isFxCell(fx?.to, x, y)) className += ' fx-pop';
@@ -3572,8 +3764,7 @@
             if (v > 0) {
               const { ownerIndex, slot } = decodeToken(v);
               const player = room.players?.[ownerIndex] || null;
-              const ci =
-                typeof player?.colorIndex === 'number' ? player.colorIndex : 0;
+              const ci = typeof player?.colorIndex === 'number' ? player.colorIndex : 0;
               const color = player ? COLORS[ci] : '#fff';
               const roleIdx = getPlayerRoleIndex(room, player, slot);
               const role = ROLES[typeof roleIdx === 'number' ? roleIdx : 0];
@@ -3581,26 +3772,13 @@
             } else if (v < 0) {
               const ownerIndex = Math.abs(v) - 1;
               const owner = room.players?.[ownerIndex];
-              const ci =
-                typeof owner?.colorIndex === 'number' ? owner.colorIndex : 0;
+              const ci = typeof owner?.colorIndex === 'number' ? owner.colorIndex : 0;
               const baseColor = owner ? COLORS[ci] : '#888';
-              const r = Math.round(parseInt(baseColor.slice(1, 3), 16) * 0.6);
-              const g = Math.round(parseInt(baseColor.slice(3, 5), 16) * 0.6);
-              const b = Math.round(parseInt(baseColor.slice(5, 7), 16) * 0.6);
-              const darker = `rgb(${r}, ${g}, ${b})`;
-              inner = e('div', {
-                className: 'grayX',
-                style: { color: darker },
-              });
+              const darker = darkenHex(baseColor, 0.6);
+              inner = e('div', { className: 'grayX', style: { color: darker } });
             }
 
-            cells.push(
-              e(
-                'div',
-                { key: `${x},${y}`, className, onClick: () => onPlace(x, y) },
-                inner
-              )
-            );
+            cells.push(e('div', { key: `${x},${y}`, className, onClick: () => onPlace(x, y) }, inner));
           }
         }
 
@@ -3613,17 +3791,11 @@
           const sy = from.y * cell + pad;
           const dx = (to.x - from.x) * cell;
           const dy = (to.y - from.y) * cell;
-          return {
-            left: sx + 'px',
-            top: sy + 'px',
-            '--dx': dx,
-            '--dy': dy,
-          };
+          return { left: sx + 'px', top: sy + 'px', '--dx': dx, '--dy': dy };
         }
 
         const fx1 = fx?.type === 'jeice' ? orbStyle(fx.from, fx.target) : null;
-        const fx2 =
-          fx?.type === 'jeice' && fx?.to ? orbStyle(fx.target, fx.to) : null;
+        const fx2 = fx?.type === 'jeice' && fx?.to ? orbStyle(fx.target, fx.to) : null;
 
         const cell = cellSize || 28;
         const piece = pieceSize || 22;
@@ -3632,14 +3804,11 @@
           'div',
           {
             className: 'board',
-            style: { '--cell': cell + 'px', '--piece': piece + 'px' },
+            style: { '--cell': cell + 'px', '--piece': piece + 'px', cursor: cursor || 'pointer' },
           },
           e(
             'div',
-            {
-              className: 'boardGrid',
-              style: { gridTemplateColumns: `repeat(${size}, ${cell}px)` },
-            },
+            { className: 'boardGrid', style: { gridTemplateColumns: `repeat(${size}, ${cell}px)` } },
             cells
           ),
           fx?.type === 'jeice'
@@ -3647,9 +3816,7 @@
                 'div',
                 { className: 'fxLayer' },
                 fx1 ? e('div', { className: 'jeiceOrb', style: fx1 }) : null,
-                fx2
-                  ? e('div', { className: 'jeiceOrb secondary', style: fx2 })
-                  : null
+                fx2 ? e('div', { className: 'jeiceOrb secondary', style: fx2 }) : null
               )
             : null
         );

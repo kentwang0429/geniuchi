@@ -194,23 +194,39 @@ class GameManager {
     return player.roleIndex;
   }
 
-  _getTurnMeta(room) {
-    const turnIndex = room.turnIndex || 0;
-    const turnSlot = room.turnSlot || 1;
-    const p = room.players?.[turnIndex] || null;
-    const roleIndex = this._getActiveRoleIndex(room, p, turnSlot);
-    const token = typeof turnIndex === 'number' ? this._tokenOf(turnIndex, turnSlot) : null;
+    _getTurnMeta(room) {
+      const turnIndex = room.turnIndex || 0;
+      const turnSlot = room.turnSlot || 1;
+      const p = room.players?.[turnIndex] || null;
+      const roleIndex = this._getActiveRoleIndex(room, p, turnSlot);
+      const token = typeof turnIndex === 'number' ? this._tokenOf(turnIndex, turnSlot) : null;
 
-    return {
-      turnIndex,
-      turnSlot,
-      turnPlayerId: p?.id || null,
-      turnPlayerName: p?.name || p?.nickname || null,
-      roleIndex: typeof roleIndex === 'number' ? roleIndex : null,
-      token,
-      roleName: typeof roleIndex === 'number' ? this.ROLE_INFO?.[roleIndex]?.name || null : null,
-    };
-  }
+      const placedThisTurn = p?.placedThisTurn || 0;
+      const maxMoves = (typeof roleIndex === 'number' && this.roleAbilities[roleIndex])
+        ? this.roleAbilities[roleIndex].maxMoves
+        : 1;
+
+      const canUndo =
+        room.status === 'PLAYING' &&
+        (roleIndex === 1 || roleIndex === 3) &&
+        placedThisTurn === 1; // ✅ 第一手後、第二手前
+
+      return {
+        turnIndex,
+        turnSlot,
+        turnPlayerId: p?.id || null,
+        turnPlayerName: p?.name || p?.nickname || null,
+        roleIndex: typeof roleIndex === 'number' ? roleIndex : null,
+        token,
+        roleName: typeof roleIndex === 'number' ? this.ROLE_INFO?.[roleIndex]?.name || null : null,
+
+        // ✅ 新增
+        placedThisTurn,
+        maxMoves,
+        canUndo,
+      };
+    }
+
 
   _emitPlaced(roomId, room, extra = {}) {
     const turnMeta = this._getTurnMeta(room);
