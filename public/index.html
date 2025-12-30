@@ -8,21 +8,27 @@
     />
     <title>基紐棋 (Geniuchi)</title>
     <style>
-      :root {
-        --bg: #0b0f19;
-        --panel: rgba(255, 255, 255, 0.08);
-        --panel2: rgba(255, 255, 255, 0.12);
-        --stroke: rgba(255, 255, 255, 0.18);
-        --text: rgba(255, 255, 255, 0.92);
-        --muted: rgba(255, 255, 255, 0.65);
-        --shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
-        --r: 18px;
+        :root {
+          --bg: #0b0f19;
+          --panel: rgba(255, 255, 255, 0.08);
+          --panel2: rgba(255, 255, 255, 0.12);
+          --stroke: rgba(255, 255, 255, 0.18);
+          --text: rgba(255, 255, 255, 0.92);
+          --muted: rgba(255, 255, 255, 0.65);
+          --shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
+          --r: 18px;
 
-        /* ✅ visualViewport vars (mobile keyboard / zoom safe) */
-        --vvh: 100dvh;
-        --vv-top: 0px;
-        --vv-bottom: 0px;
-      }
+          /* ✅ 棋盤背景（15x15，2040版） */
+          --board-bg: url('/img/stone_2040_nogrid.png');
+
+          /* ✅ 草地背景（放你的草地圖在 public/img/grass.png） */
+          --grass-bg: url('/img/grass.png');
+
+          /* ✅ visualViewport vars (mobile keyboard / zoom safe) */
+          --vvh: 100dvh;
+          --vv-top: 0px;
+          --vv-bottom: 0px;
+        }
 
       * {
         box-sizing: border-box;
@@ -366,34 +372,254 @@
       /* ===== Board（吃 --cell / --piece） ===== */
       .boardWrap {
         padding: 12px;
+
+        /* ✅ 讓裡面的內容置中 */
+        display: flex;
+        align-items: flex-start;      /* ✅ 取消垂直置中 → 往上貼 */
+        justify-content: center;      /* ✅ 水平維持置中 */
       }
+
+      /* ================== Arena（草地 + 薄石階 + 棋盤抬高一格） ================== */
+      .arena {
+        /* 由 inline style 注入：--cell、--boardW */
+        --step: clamp(4px, calc(var(--cell) / 4), 8px);
+        --grass: clamp(14px, calc(var(--cell) * 0.9), 28px);
+
+        position: relative;
+        padding: var(--grass);
+
+        /* ✅ 上方少一格：建築+棋盤整體往上，蓋掉建築上方草地 */
+        padding-top: max(0px, calc(var(--grass) - var(--cell)));
+        /* ✅ 關鍵：底部多留「一格」草地高度，讓石牆不會突出草地區 */
+        padding-bottom: calc(var(--grass) + var(--cell));
+        border-radius: 0;
+        overflow: visible;
+
+        background:
+          var(--grass-bg),
+          radial-gradient(circle at 20% 30%, rgba(255,255,255,0.07), transparent 42%),
+          radial-gradient(circle at 70% 60%, rgba(0,0,0,0.12), transparent 48%),
+          repeating-linear-gradient(45deg, rgba(255,255,255,0.035) 0 8px, rgba(0,0,0,0.03) 8px 16px),
+          linear-gradient(180deg, #2f7a42, #1f4f2c);
+
+        background-size: auto, auto, auto, auto, auto;
+        background-position: top center, center, center, center, center;
+        background-repeat: repeat-x, no-repeat, no-repeat, repeat, no-repeat;
+
+        box-shadow:
+          0 18px 46px rgba(0,0,0,0.42),
+          inset 0 0 0 1px rgba(255,255,255,0.08);
+      }
+
+
+      /* ✅ 整體往上移一格：建築 + 平台 + 棋盤一起上去 */
+      .arenaContent{
+        transform: translateY(calc(var(--cell) * -1));
+      }
+
+      /* 上方建築置中，左右延伸到草地邊 */
+      .arenaTop{
+        display:flex;
+        justify-content:center;
+        margin-bottom: 10px;
+        pointer-events:none;
+
+        /* ✅ 關鍵：把草地 padding 吃回來，讓建築能填滿草地左右 */
+        margin-left: calc(var(--grass) * -1);
+        margin-right: calc(var(--grass) * -1);
+      }
+
+      .arenaTop img{
+        width: 100%;        /* ✅ 撐滿剛剛被拉寬的 .arenaTop */
+        max-width: none;    /* ✅ 避免被 max-width:100% 限制回去 */
+        height: auto;
+        display:block;
+        border-radius: 0;          /* ✅ 直角 */
+        box-shadow: 0 14px 34px rgba(0,0,0,0.32);
+        user-select:none;
+        -webkit-user-drag:none;
+      }
+
+
+      /* ✅ 石階平台（薄邊框包住棋盤） */
+      .arenaStage{
+        position: relative;
+        width: calc(var(--boardW) + var(--step) * 2);
+        box-sizing: border-box;
+        padding: var(--step);
+        margin: 0 auto;
+
+        border-radius: 0;          /* ✅ 直角 */
+        overflow: visible;
+
+        /* 台階材質：跟棋盤同一張石頭圖 */
+        background: var(--board-bg);
+        background-size: cover;
+        background-position: center;
+
+        /* ✅ 立體感：平台本體陰影（像放在草地上） */
+        box-shadow:
+          0 18px 0 rgba(0,0,0,0.20),         /* 壓出“高度感” */
+          0 30px 40px rgba(0,0,0,0.40),      /* 投影 */
+          inset 0 0 0 1px rgba(255,255,255,0.12),
+          inset 0 10px 18px rgba(0,0,0,0.22);
+      }
+
+      /* ✅ “高一格”的側面石牆（高度=1格） */
+      .arenaStage::after{
+        content:"";
+        position:absolute;
+        left:0;
+        right:0;
+        top:100%;
+        height: var(--cell);                 /* ✅ 比草地高一格 */
+        background: var(--board-bg);
+        background-size: cover;
+        background-position: center;
+        filter: brightness(0.72) saturate(0.9); /* 側面暗一點像立體 */
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,0.10),
+          inset 0 -10px 16px rgba(0,0,0,0.22);
+        transform: translateY(calc(var(--step) * -0.2));
+      }
+
+      /* ✅ 讓棋盤“坐在平台上”更像貼合 */
+      .arenaStage::before{
+        content:"";
+        position:absolute;
+        left:0;
+        right:0;
+        top:0;
+        height: var(--step);
+        background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.00));
+        pointer-events:none;
+      }
+
+      /* ✅ 保證棋盤本體不被圓角/overflow裁切到格線 */
+      .arenaStage .board{
+        border-radius: 0 !important;
+        overflow: visible !important;
+      }
+
+
+      /* ✅ 棋盤上方橫圖（置中對齊棋盤中線，寬度跟棋盤一致） */
+      .boardStack{
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:10px;
+      }
+      .boardBanner{
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        max-width:100%;
+        pointer-events:none; /* 不擋棋盤點擊 */
+      }
+      .boardBanner img{
+        width:100%;
+        height:auto;
+        display:block;
+        border-radius: 14px;
+        box-shadow:
+          0 14px 34px rgba(0, 0, 0, 0.32),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+        user-select:none;
+        -webkit-user-drag:none;
+      }
+
+
       .board {
         position: relative;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
         display: inline-block;
+        border-radius: 0 !important;
+        overflow: visible !important;
         border-radius: 14px;
-        overflow: hidden;
 
+        /* 邊緣更「銳利」：改成較清楚的框 */
+        border: none;
+        box-shadow:
+          0 14px 34px rgba(0, 0, 0, 0.38),
+          inset 0 0 0 2px rgba(255, 255, 255, 0.16);
+
+        --n: 15;
         --cell: 28px;
         --piece: 22px;
 
+        width: calc(var(--n) * var(--cell));
+        height: calc(var(--n) * var(--cell));
+
+        /* ✅ 全 2D：只留你的棋盤材質，不做景深光影疊加 */
+        background-image: var(--board-bg);
+        background-size: 100% 100%;
+        background-position: center center;
+
+        background-repeat: no-repeat;
+
         cursor: pointer;
       }
+
+
+
+      /* ✅ 石磚縫：凹槽 + 高光（吃進材質） */
+      .board::before{
+        content:"";
+        position:absolute;
+        inset:0;
+        pointer-events:none;
+
+        background-image:
+          linear-gradient(to right, rgba(0,0,0,.55) 0 2px, transparent 2px 100%),
+          linear-gradient(to bottom, rgba(0,0,0,.55) 0 2px, transparent 2px 100%);
+
+        background-size: var(--cell) var(--cell);
+
+        /* ✅ 關鍵：2px 線寬 → 位移 -1px，讓線落在格線中心，不吃格子內容 */
+        background-position: -1px -1px;
+
+        opacity: .82;
+        mix-blend-mode: multiply;
+        filter: none;
+      }
+
+      /* ✅ 內陰影/邊緣暗角（非常像石板棋盤框的關鍵） */
+      .board::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        border-radius: 14px;
+
+        /* ✅ 只留「清楚的內框」+ 很淡的內陰影，避免霧感 */
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+          inset 0 10px 18px rgba(0, 0, 0, 0.22);
+
+        opacity: 1;
+      }
+
+
+
       .boardGrid {
         display: grid;
       }
       .cell {
         width: var(--cell);
         height: var(--cell);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        display: flex;
-        align-items: center;
-        justify-content: center;
+
+        border: 0;
+        background: transparent;
+
+        display:flex;
+        align-items:center;
+        justify-content:center;
         cursor: inherit;
         position: relative;
         -webkit-tap-highlight-color: transparent;
       }
+
+
+
       .highlight-source {
         outline: 2px solid #b84bff;
       }
@@ -1185,6 +1411,13 @@
         gap: 12px;
         grid-template-columns: 1fr;
       }
+      /* ✅ 桌機三欄時：只把中間棋盤欄位往上抬 */
+      @media (min-width: 1100px) {
+        .gameDesktop3 .boardWrap {
+          transform: translateY(-90px); /* 想更上就加大數字，例如 -60px */
+        }
+      }
+
       @media (min-width: 1100px) {
         .gameDesktop3 {
           grid-template-columns: 360px 1fr 320px;
@@ -3132,24 +3365,48 @@
                     e(
                       'div',
                       { className: 'card gameBoardCard' },
-                      boardToRender.length > 0
-                        ? e(Board, {
-                            board: boardToRender,
-                            onPlace: place,
-                            room,
-                            highlightSources,
-                            highlightTargets,
-                            highlightGudo,
-                            highlightGudoTargets,
-                            highlightGudoSelf,
-                            highlightJeiceTargets,
-                            highlightJeiceSource,
-                            fx,
-                            cellSize,
-                            pieceSize,
-                            cursor: null,
-                          })
+                        boardToRender.length > 0
+                        ? e(
+                            'div',
+                            {
+                              className: 'arena',
+                              style: {
+                                '--cell': cellSize + 'px',
+                                '--boardW': size * cellSize + 'px',
+                              },
+                            },
+                            e(
+                              'div',
+                              { className: 'arenaTop' },
+                              e('img', {
+                                src: '/img/building003.png',
+                                alt: 'building',
+                                draggable: 'false',
+                              })
+                            ),
+                            e(
+                              'div',
+                              { className: 'arenaStage' },
+                              e(Board, {
+                                board: boardToRender,
+                                onPlace: place,
+                                room,
+                                highlightSources,
+                                highlightTargets,
+                                highlightGudo,
+                                highlightGudoTargets,
+                                highlightGudoSelf,
+                                highlightJeiceTargets,
+                                highlightJeiceSource,
+                                fx,
+                                cellSize,
+                                pieceSize,
+                                cursor: null,
+                              })
+                            )
+                          )
                         : e('div', null, '尚未開始遊戲')
+
                     )
                   ),
                   e(
@@ -3337,24 +3594,48 @@
                     'div',
                     { className: 'card boardWrap' },
                     boardToRender.length > 0
-                      ? e(Board, {
-                          board: boardToRender,
-                          onPlace: place,
-                          room,
-                          highlightSources,
-                          highlightTargets,
-                          highlightGudo,
-                          highlightGudoTargets,
-                          highlightGudoSelf,
-                          highlightJeiceTargets,
-                          highlightJeiceSource,
-                          fx,
-                          cellSize: 28,
-                          pieceSize: 22,
-                          cursor: boardCursor,
-                        })
+                      ? e(
+                          'div',
+                          {
+                            className: 'arena',
+                            style: {
+                              '--cell': '28px',
+                              '--boardW': size * 28 + 'px',
+                            },
+                          },
+                          e(
+                            'div',
+                            { className: 'arenaTop' },
+                            e('img', {
+                              src: '/img/building003.png',
+                              alt: 'building',
+                              draggable: 'false',
+                            })
+                          ),
+                          e(
+                            'div',
+                            { className: 'arenaStage' },
+                            e(Board, {
+                              board: boardToRender,
+                              onPlace: place,
+                              room,
+                              highlightSources,
+                              highlightTargets,
+                              highlightGudo,
+                              highlightGudoTargets,
+                              highlightGudoSelf,
+                              highlightJeiceTargets,
+                              highlightJeiceSource,
+                              fx,
+                              cellSize: 28,
+                              pieceSize: 22,
+                              cursor: boardCursor,
+                            })
+                          )
+                        )
                       : e('div', null, '尚未開始遊戲')
                   ),
+
 
                   // 右：技能說明
                   e(
