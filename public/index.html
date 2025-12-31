@@ -1295,7 +1295,13 @@
         padding: 10px;
         max-height: 240px;
         overflow: auto;
+
+        /* ✅ 只允許抽屜內上下滑，避免把整頁一起帶動 */
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
       }
+
 
       /* =========================================================
          ✅ (5) 回合順序條：形狀+顏色 & 箭頭指示
@@ -1429,7 +1435,6 @@
         條件：coarse pointer + 小螢幕（對應你 isGameMobile 的邏輯）
         ========================================================= */
       @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
-        /* 1) Arena：不要草地、不要多餘 padding，不往上推 */
         .arena {
           padding: 0 !important;
           padding-top: 0 !important;
@@ -1438,30 +1443,30 @@
           box-shadow: none !important;
         }
 
-        /* 如果你之後又包了 arenaContent，也強制不位移 */
         .arenaContent {
           transform: none !important;
         }
 
-        /* 2) 平台（arenaStage）：取消「石階」與立體陰影 */
         .arenaStage {
-          --step: 0px;              /* 平台厚度歸零 */
-          width: var(--boardW) !important; /* 直接跟棋盤同寬 */
+          --step: 0px;
+          width: var(--boardW) !important;
           padding: 0 !important;
           background: none !important;
           box-shadow: none !important;
         }
         .arenaStage::before,
         .arenaStage::after {
-          content: none !important; /* 取消頂部高光與側面石牆 */
+          content: none !important;
         }
 
-        /* 3) 棋盤本體：拿掉外部投影（立體陰影），保留內框即可 */
+        /* ✅ Mobile：棋盤拿掉材質（只留乾淨底 + 格線） */
         .board {
           box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16) !important;
+
+          background-image: none !important;   /* ✅ 關鍵：移除 stone_2040 材質 */
+          background: rgba(255, 255, 255, 0.06) !important; /* ✅ 給個乾淨底色 */
         }
       }
-
     </style>
   </head>
   <body>
@@ -2172,6 +2177,43 @@
         }, [vp.w, vp.h]);
 
         const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
+
+        /* ✅ Mobile 對局：鎖住整頁上下滑
+          - 只有在 helpOpen 且手指在 .helpDrawer 內時，允許正常滑動
+        */
+        React.useEffect(() => {
+          const shouldLock = isGameMobile && view === 'GAME';
+
+          const html = document.documentElement;
+          const body = document.body;
+
+          const prevHtmlOverflow = html.style.overflow;
+          const prevBodyOverflow = body.style.overflow;
+
+          function onTouchMove(e) {
+            // 允許技能說明抽屜內滑動
+            if (helpOpen) {
+              const t = e.target;
+              const drawer = t && t.closest ? t.closest('.helpDrawer') : null;
+              if (drawer) return;
+            }
+            e.preventDefault();
+          }
+
+          if (shouldLock) {
+            html.style.overflow = 'hidden';
+            body.style.overflow = 'hidden';
+
+            // iOS/Android：阻止整頁被 touchmove 帶著滑
+            document.addEventListener('touchmove', onTouchMove, { passive: false });
+          }
+
+          return () => {
+            document.removeEventListener('touchmove', onTouchMove, { passive: false });
+            html.style.overflow = prevHtmlOverflow;
+            body.style.overflow = prevBodyOverflow;
+          };
+        }, [isGameMobile, view, helpOpen]);
 
         async function ensureUnlocked() {
           const am = audioRef.current;
