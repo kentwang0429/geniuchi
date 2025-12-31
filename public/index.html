@@ -1186,8 +1186,12 @@
         align-items: center;
         justify-content: center;
         padding: 10px;
-        border-radius: 22px;
+        border-radius: 0;          /* ✅ 保險：不要圓角 */
+        background: transparent;   /* ✅ 保險：不要背景 */
+        border: none;              /* ✅ 保險：不要邊框 */
+        box-shadow: none;          /* ✅ 保險：不要陰影 */
       }
+
 
       .gameDock {
         width: 100%;
@@ -1459,14 +1463,25 @@
           content: none !important;
         }
 
-        /* ✅ Mobile：棋盤拿掉材質（只留乾淨底 + 格線） */
+        /* ✅ Mobile：改回「與桌機相同材質 + 邊框」，但不要立體陰影 */
         .board {
+          /* 只留清楚邊框，不要外投影 */
           box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16) !important;
 
-          background-image: none !important;   /* ✅ 關鍵：移除 stone_2040 材質 */
-          background: rgba(255, 255, 255, 0.06) !important; /* ✅ 給個乾淨底色 */
+          /* ✅ 跟桌機一樣的石磚材質 */
+          background-image: var(--board-bg) !important;
+          background-size: 100% 100% !important;
+          background-position: center center !important;
+          background-repeat: no-repeat !important;
+          background-color: transparent !important; /* 避免底色把材質洗掉 */
+        }
+
+        /* ✅ 拿掉桌機那種內暗角立體感（只留細內框） */
+        .board::after {
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10) !important;
         }
       }
+
     </style>
   </head>
   <body>
@@ -3443,42 +3458,19 @@
                     'div',
                     { className: 'gameBoardArea' },
                     e(
-                      'div',
-                      { className: 'card gameBoardCard' },
-                        boardToRender.length > 0
-                        ? e(
+                    'div',
+                    { className: 'gameBoardCard' }, // ✅ 拿掉 card，避免露出圓角背景卡片
+                    boardToRender.length > 0
+                      ? e(
+                          'div',
+                          { className: 'arena', style: { '--cell': cellSize + 'px', '--boardW': size * cellSize + 'px' } },
+                          e(
                             'div',
-                            {
-                              className: 'arena',
-                              style: {
-                                '--cell': cellSize + 'px',
-                                '--boardW': size * cellSize + 'px',
-                              },
-                            },
-                            
-                            e(
-                              'div',
-                              { className: 'arenaStage' },
-                              e(Board, {
-                                board: boardToRender,
-                                onPlace: place,
-                                room,
-                                highlightSources,
-                                highlightTargets,
-                                highlightGudo,
-                                highlightGudoTargets,
-                                highlightGudoSelf,
-                                highlightJeiceTargets,
-                                highlightJeiceSource,
-                                fx,
-                                cellSize,
-                                pieceSize,
-                                cursor: null,
-                              })
-                            )
+                            { className: 'arenaStage' },
+                            e(Board, { /* ... */ })
                           )
-                        : e('div', null, '尚未開始遊戲')
-
+                        )
+                      : e('div', null, '尚未開始遊戲')
                     )
                   ),
                   e(
