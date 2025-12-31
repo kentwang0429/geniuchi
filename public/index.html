@@ -3467,7 +3467,23 @@
                           e(
                             'div',
                             { className: 'arenaStage' },
-                            e(Board, { /* ... */ })
+                            e(Board, {
+                                board: boardToRender,
+                                onPlace: place,
+                                room,
+                                highlightSources,
+                                highlightTargets,
+                                highlightGudo,
+                                highlightGudoTargets,
+                                highlightGudoSelf,
+                                highlightJeiceTargets,
+                                highlightJeiceSource,
+                                fx,
+                                cellSize,
+                                pieceSize,
+                                cursor: null,
+                              })
+
                           )
                         )
                       : e('div', null, '尚未開始遊戲')
