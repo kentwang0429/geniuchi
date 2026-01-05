@@ -399,7 +399,7 @@
       .aiControls .tinyBtn {
         padding: 6px 10px;
       }
-
+      
 
       /* ===== Board（吃 --cell / --piece） ===== */
       .boardWrap {
@@ -2128,6 +2128,8 @@
 
       function App() {
         const [socket, setSocket] = React.useState(null);
+        const OPTIMISTIC_PLACE = true; // ✅ 想關就改 false
+        const optimisticRef = React.useRef(null);
 
         // ✅ ENTRY｜ROOM｜ROLE｜GAME
         const [view, setView] = React.useState('ENTRY');
@@ -2496,6 +2498,7 @@
             setHighlightJeiceSource(null);
             setJeiceMode(false);
             setJeiceStep('idle');
+            optimisticRef.current = null;
 
             updateTurnInfo(roomRef.current);
           });
@@ -3446,9 +3449,55 @@
           }
 
           // ===== 一般落子 =====
+          let optimisticKey = null;
+
+          if (OPTIMISTIC_PLACE) {
+            try {
+              const r0 = roomRef.current || room;
+              if (r0 && r0.status === 'PLAYING') {
+                const me0 = findMePlayer(r0, socket?.id, nameRef.current);
+                if (me0 && isMyTurnByIdOrName(r0, me0)) {
+                  const slot = r0.mode === 'DUAL' ? (r0.turnSlot || 1) : 1;
+
+                  const myIdx = (r0.players || []).findIndex(
+                    (p) => p.id === socket.id || (me0?.name && p.name === me0.name)
+                  );
+
+                  const b0 = deepCopyBoard(r0.board || board);
+                  if (myIdx >= 0 && b0?.[y]?.[x] === 0) {
+                    const token = myIdx * 2 + slot;
+                    const b2 = deepCopyBoard(b0);
+                    b2[y][x] = token;
+
+                    optimisticKey = `${r0.id}:${r0.roundCount || 1}:${r0.turnIndex}:${r0.turnSlot || 1}:${x},${y}`;
+                    optimisticRef.current = { key: optimisticKey, prevBoard: b0 };
+
+                    // 更新 UI
+                    if (roomRef.current) roomRef.current = { ...r0, board: b2 };
+                    setBoard(b2);
+                    setRoom((prev) => (prev ? { ...prev, board: b2 } : prev));
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+
           socket.emit('place', { roomId: room.id, x, y }, (res) => {
-            if (!res.ok && res.message) alert(res.message);
+            if (!res?.ok) {
+              // ❗後端拒絕：若剛剛有 optimistic，就回滾
+              try {
+                const st = optimisticRef.current;
+                if (st && st.key === optimisticKey && st.prevBoard) {
+                  if (roomRef.current) roomRef.current = { ...(roomRef.current || room), board: st.prevBoard };
+                  setBoard(st.prevBoard);
+                  setRoom((prev) => (prev ? { ...prev, board: st.prevBoard } : prev));
+                }
+              } catch (e) {}
+
+              if (res?.message) alert(res.message);
+            }
           });
+
         }
 
         function activateGinyu() {
@@ -4680,6 +4729,18 @@
 
         );
       }
+      function posKey(x, y) {
+        return x + ',' + y;
+      }
+      function makePosSet(arr) {
+        const s = new Set();
+        (arr || []).forEach((p) => {
+          if (!p) return;
+          const x = p.x, y = p.y;
+          if (typeof x === 'number' && typeof y === 'number') s.add(posKey(x, y));
+        });
+        return s;
+      }
 
       function Board({
         board,
@@ -4704,19 +4765,52 @@
           return pos && pos.x === x && pos.y === y;
         }
 
+        // ✅ 避免每格都 .some()（手機會慢），先做成 Set
+        const setSources = React.useMemo(() => makePosSet(highlightSources), [highlightSources]);
+        const setTargets = React.useMemo(() => makePosSet(highlightTargets), [highlightTargets]);
+        const setGudo = React.useMemo(() => makePosSet(highlightGudo), [highlightGudo]);
+        const setGudoTargets = React.useMemo(() => makePosSet(highlightGudoTargets), [highlightGudoTargets]);
+        const setGudoSelf = React.useMemo(() => makePosSet(highlightGudoSelf), [highlightGudoSelf]);
+        const setJeiceTargets = React.useMemo(() => makePosSet(highlightJeiceTargets), [highlightJeiceTargets]);
+
+        const jeiceSourceKey =
+          highlightJeiceSource ? posKey(highlightJeiceSource.x, highlightJeiceSource.y) : null;
+
+        // ✅ 事件委派：只用一個 handler（避免 225 個 closure / render 開銷）
+        function onGridPointerDown(ev) {
+          const el = ev?.target?.closest ? ev.target.closest('.cell') : null;
+          if (!el) return;
+
+          // 右鍵/中鍵不處理
+          if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+
+          // touch/pen：避免產生後續 ghost click
+          if (ev.pointerType !== 'mouse') {
+            try { ev.preventDefault(); } catch (e) {}
+          }
+
+          const x = Number(el.dataset.x);
+          const y = Number(el.dataset.y);
+          if (Number.isNaN(x) || Number.isNaN(y)) return;
+
+          onPlace(x, y);
+        }
+
         for (let y = 0; y < size; y++) {
           for (let x = 0; x < size; x++) {
             const v = board[y][x];
 
             let className = 'cell';
-            if (highlightSources.some((p) => p.x === x && p.y === y)) className += ' highlight-source';
-            if (highlightTargets.some((p) => p.x === x && p.y === y)) className += ' highlight-target';
-            if (highlightGudo.some((p) => p.x === x && p.y === y)) className += ' highlight-gudo';
-            if (highlightGudoTargets.some((p) => p.x === x && p.y === y)) className += ' highlight-gudo-target';
-            if (highlightGudoSelf.some((p) => p.x === x && p.y === y)) className += ' highlight-gudo-self';
+            const k = posKey(x, y);
 
-            if (highlightJeiceTargets.some((p) => p.x === x && p.y === y)) className += ' highlight-jeice-target';
-            if (highlightJeiceSource && highlightJeiceSource.x === x && highlightJeiceSource.y === y) className += ' highlight-jeice-source';
+            if (setSources.has(k)) className += ' highlight-source';
+            if (setTargets.has(k)) className += ' highlight-target';
+            if (setGudo.has(k)) className += ' highlight-gudo';
+            if (setGudoTargets.has(k)) className += ' highlight-gudo-target';
+            if (setGudoSelf.has(k)) className += ' highlight-gudo-self';
+
+            if (setJeiceTargets.has(k)) className += ' highlight-jeice-target';
+            if (jeiceSourceKey && jeiceSourceKey === k) className += ' highlight-jeice-source';
 
             if (isFxCell(fx?.target, x, y)) className += ' fx-shake';
             if (isFxCell(fx?.to, x, y)) className += ' fx-pop';
@@ -4740,7 +4834,14 @@
               inner = e('div', { className: 'grayX', style: { color: darker } });
             }
 
-            cells.push(e('div', { key: `${x},${y}`, className, onClick: () => onPlace(x, y) }, inner));
+            // ✅ 注意：cell 不再掛 onClick / onPointerDown
+            cells.push(
+              e(
+                'div',
+                { key: `${x},${y}`, className, 'data-x': x, 'data-y': y },
+                inner
+              )
+            );
           }
         }
 
@@ -4770,7 +4871,11 @@
           },
           e(
             'div',
-            { className: 'boardGrid', style: { gridTemplateColumns: `repeat(${size}, ${cell}px)` } },
+            {
+              className: 'boardGrid',
+              style: { gridTemplateColumns: `repeat(${size}, ${cell}px)` },
+              onPointerDown: onGridPointerDown, // ✅ 改這裡：pointerdown 立即觸發
+            },
             cells
           ),
           fx?.type === 'jeice'
@@ -4783,6 +4888,7 @@
             : null
         );
       }
+
 
       ReactDOM.createRoot(document.getElementById('app')).render(e(App));
     </script>
