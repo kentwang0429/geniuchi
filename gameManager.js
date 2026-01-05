@@ -684,6 +684,35 @@ class GameManager {
       return { x, y };
     });
   }
+    // ✅ AI: 全盤掃描所有「合法可下」的格子（避免 candidates 半徑太小導致卡住）
+  _aiGatherAllLegalCells(room, roleIndex, token, placedThisTurnBefore, playerIndex) {
+    const board = room.board;
+    const N = board.length;
+    const role = this.roleAbilities[roleIndex];
+    if (!role) return [];
+
+    const legal = [];
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const v0 = board?.[y]?.[x];
+        if (v0 === undefined) continue;
+
+        try {
+          // 用角色規則試放一次（只驗證合法性），再還原
+          if (roleIndex === 3) {
+            this.roleAbilities[3].place(board, x, y, token, playerIndex, placedThisTurnBefore);
+          } else {
+            role.place(board, x, y, token);
+          }
+          board[y][x] = v0; // 還原
+          legal.push({ x, y, v0 });
+        } catch (e) {
+          board[y][x] = v0; // 保險還原
+        }
+      }
+    }
+    return legal;
+  }
 
   _aiEvalCenter(boardSize, x, y) {
     const mid = (boardSize - 1) / 2;
@@ -703,7 +732,7 @@ class GameManager {
     return c;
   }
 
-  _aiWouldWinIfPlace(room, x, y, token, roleIndex, placedThisTurnBefore, playerIndex) {
+    _aiWouldWinIfPlace(room, x, y, token, roleIndex, placedThisTurnBefore, playerIndex) {
     const board = room.board;
     const N = board.length;
     if (y < 0 || y >= N || x < 0 || x >= N) return false;
@@ -732,6 +761,175 @@ class GameManager {
     }
   }
 
+  // ✅ NEW: 擋對手「下一手直接勝利」 + ✅ 巴特「兩步內必勝」(因為巴特每回合 2 手)
+  _aiFindImmediateBlockMove(room, candidates, selfPlayerIndex) {
+    const board = room.board;
+    const N = board.length;
+
+    const inb = (x, y) => x >= 0 && x < N && y >= 0 && y < N;
+
+    // candidates 快速查找（因為我們只能下 candidates 裡的點）
+    const candSet = new Set(candidates.map((p) => `${p.x},${p.y}`));
+
+    // 收集所有對手 token（DUAL 需含 slot1/2）
+    const oppTokens = [];
+    for (let oi = 0; oi < (room.players?.length || 0); oi++) {
+      if (oi === selfPlayerIndex) continue;
+      const owner = room.players[oi];
+      if (!owner) continue;
+
+      if (room.mode === 'DUAL') {
+        for (const slot of [1, 2]) {
+          const roleIndex = this._getActiveRoleIndex(room, owner, slot);
+          if (typeof roleIndex !== 'number') continue;
+          oppTokens.push({ ownerIndex: oi, slot, token: this._tokenOf(oi, slot), roleIndex });
+        }
+      } else {
+        const roleIndex = this._getActiveRoleIndex(room, owner, 1);
+        if (typeof roleIndex !== 'number') continue;
+        oppTokens.push({ ownerIndex: oi, slot: 1, token: this._tokenOf(oi, 1), roleIndex });
+      }
+    }
+
+    const wouldOppWinAt = (x, y, opp) => {
+      if (!inb(x, y)) return false;
+
+      const tmp = board[y][x];
+      try {
+        // 用對手角色規則模擬落子（假設是本回合第一手）
+        if (opp.roleIndex === 3) {
+          this.roleAbilities[3].place(board, x, y, opp.token, opp.ownerIndex, 0);
+        } else {
+          this.roleAbilities[opp.roleIndex].place(board, x, y, opp.token);
+        }
+
+        if (board[y][x] > 0) {
+          const n = opp.roleIndex === 1 ? 6 : room.targetN; // 巴特 6 連線
+          const win = this.checkWinner(board, x, y, opp.token, n);
+          board[y][x] = tmp;
+          return win;
+        }
+
+        board[y][x] = tmp;
+        return false;
+      } catch (e) {
+        board[y][x] = tmp;
+        return false;
+      }
+    };
+
+    // =========================
+    // (A) 先擋「一手必勝」(原本邏輯)
+    // =========================
+    let best1 = null;
+
+    for (const p of candidates) {
+      let threatCount = 0;
+      for (const opp of oppTokens) {
+        if (wouldOppWinAt(p.x, p.y, opp)) threatCount++;
+      }
+      if (threatCount > 0) {
+        if (!best1 || threatCount > best1.threatCount) best1 = { ...p, threatCount };
+      }
+    }
+
+    if (best1) return best1; // 一手必勝永遠優先擋
+
+    // =========================
+    // (B) ✅ 再擋「巴特兩步必勝」
+    // =========================
+    // 思路：找出「巴特在他回合用兩手可以達成 6 連」的任意 winning pair (a,b)，
+    //       只要我們先佔掉其中一點，就能打斷他那回合直贏。
+    const threatScore = new Map(); // key "x,y" -> score
+
+    const addScore = (x, y, s) => {
+      const k = `${x},${y}`;
+      if (!candSet.has(k)) return; // 我們只能擋 candidates
+      threatScore.set(k, (threatScore.get(k) || 0) + s);
+    };
+
+    // 只針對對手 roleIndex===1（巴特）
+    const burters = oppTokens.filter((o) => o.roleIndex === 1);
+
+    if (burters.length) {
+      // 給巴特用的候選點：用你現成的 gather（半徑2），再過濾空格
+      // ※ 這裡用「以房間目前棋況」為基礎，預判他下兩手能否贏
+      const gatherOppMoves = () => {
+        const pts = this._aiGatherCandidateCells(room, false, false, 0);
+        return pts.filter((p) => board?.[p.y]?.[p.x] === 0);
+      };
+
+      const oppCandidates = gatherOppMoves();
+
+      // 小優化：若候選太少/太多都可接受；最壞也就幾萬次模擬，server 端 OK
+      for (const opp of burters) {
+        // 第一手 a
+        for (let i = 0; i < oppCandidates.length; i++) {
+          const a = oppCandidates[i];
+          if (board[a.y][a.x] !== 0) continue;
+
+          // 模擬放第一手
+          board[a.y][a.x] = opp.token;
+
+          // 若第一手就能贏，其實已被 (A) 擋掉；這裡仍加分防漏
+          if (this.checkWinner(board, a.x, a.y, opp.token, 6)) {
+            addScore(a.x, a.y, 1000);
+            board[a.y][a.x] = 0;
+            continue;
+          }
+
+          // 第二手 b：找到任一能贏的 b，就把 (a,b) 都當「必擋點」
+          let found = false;
+          for (let j = 0; j < oppCandidates.length; j++) {
+            if (j === i) continue;
+            const b = oppCandidates[j];
+            if (board[b.y][b.x] !== 0) continue;
+
+            board[b.y][b.x] = opp.token;
+
+            // 第二手完成後，檢查是否出現 6 連
+            // 注意：勝利可能由 b 形成，也可能 a/b 任一形成，穩健起見檢查兩點
+            const win =
+              this.checkWinner(board, b.x, b.y, opp.token, 6) ||
+              this.checkWinner(board, a.x, a.y, opp.token, 6);
+
+            board[b.y][b.x] = 0;
+
+            if (win) {
+              // 這組 (a,b) 是「巴特一回合兩手可直贏」
+              addScore(a.x, a.y, 20);
+              addScore(b.x, b.y, 20);
+              found = true;
+              break; // 找到一個就夠，先加分即可
+            }
+          }
+
+          // 還原第一手
+          board[a.y][a.x] = 0;
+
+          // 若這個 a 完全沒有找到配對 b，就略過
+          if (found) {
+            // 可選：也可以繼續找更多 b 讓分數更精準；目前先 break 不做，性能更穩
+          }
+        }
+      }
+    }
+
+    // 從 threatScore 挑分數最高的格子來擋
+    let best2 = null;
+    for (const p of candidates) {
+      const k = `${p.x},${p.y}`;
+      const sc = threatScore.get(k) || 0;
+      if (sc > 0) {
+        if (!best2 || sc > best2.score) best2 = { ...p, score: sc };
+      }
+    }
+
+    return best2; // 可能為 null
+  }
+
+
+  
   _aiPlaceNormal(fakeSocket, roomId) {
     const room = this.rooms[roomId];
     if (!room) return false;
@@ -748,11 +946,45 @@ class GameManager {
     const includeOverride = roleIndex === 2; // 力庫姆覆蓋
     const includeOwnCrossAsEmptyForLoganFirst = roleIndex === 3 && placedThisTurnBefore === 0;
 
-    const candidates = this._aiGatherCandidateCells(room, includeOverride, includeOwnCrossAsEmptyForLoganFirst, playerIndex);
-    if (!candidates.length) return false;
+        let candidates = this._aiGatherCandidateCells(room, includeOverride, includeOwnCrossAsEmptyForLoganFirst, playerIndex);
 
-    // 先找必勝
-    for (const p of candidates) {
+    // ✅ 若半徑2抓不到，就先不急著 false，後面會全盤掃描
+    // if (!candidates.length) return false;
+
+    const board = room.board;
+    const N = board.length;
+
+    // ✅ 先把 candidates 過濾成「合法候選」
+    let legalCandidates = [];
+    if (candidates.length) {
+      for (const p of candidates) {
+        const v0 = board?.[p.y]?.[p.x];
+        if (v0 === undefined) continue;
+        try {
+          if (roleIndex === 3) {
+            this.roleAbilities[3].place(board, p.x, p.y, token, playerIndex, placedThisTurnBefore);
+          } else {
+            role.place(board, p.x, p.y, token);
+          }
+          board[p.y][p.x] = v0;
+          legalCandidates.push({ x: p.x, y: p.y, v0 });
+        } catch (e) {
+          board[p.y][p.x] = v0;
+        }
+      }
+    }
+
+    // ✅ 关键：半徑候選全部不合法 → 改成「全盤掃描」找合法落點（不 PASS）
+    if (!legalCandidates.length) {
+      legalCandidates = this._aiGatherAllLegalCells(room, roleIndex, token, placedThisTurnBefore, playerIndex);
+      if (!legalCandidates.length) {
+        // 這幾乎只會在極端規則下才發生；為了不死循環才回 false
+        return false;
+      }
+    }
+
+    // ✅ 先找必勝（用合法候選）
+    for (const p of legalCandidates) {
       if (this._aiWouldWinIfPlace(room, p.x, p.y, token, roleIndex, placedThisTurnBefore, playerIndex)) {
         let ok = false;
         this.placePiece(fakeSocket, { roomId, x: p.x, y: p.y }, (res) => { ok = !!res?.ok; });
@@ -760,45 +992,51 @@ class GameManager {
       }
     }
 
-    // 否則用簡單評分挑一個
-    const board = room.board;
-    const N = board.length;
+    // ✅ NEW: 擋對手「下一手必勝」；以及巴特「同回合兩手可 6 連」的雙威脅
+    // 注意：要用 legalCandidates，確保我們下得上（尤其羅根第2手/力庫姆覆蓋等）
+    const block = this._aiFindImmediateBlockMove(room, legalCandidates, playerIndex);
+    if (block) {
+      let ok = false;
+      this.placePiece(fakeSocket, { roomId, x: block.x, y: block.y }, (res) => { ok = !!res?.ok; });
+      return ok;
+    }
 
+    // ✅ 否則評分挑一個（用合法候選）
     let best = null;
-    for (const p of candidates) {
-      // 先用 try/catch 檢查合法性
+
+    for (const p of legalCandidates) {
       const v0 = board[p.y][p.x];
+
+      // 這裡其實已經合法了，但保留你的 try/catch 也可以更穩
       try {
         if (roleIndex === 3) {
           this.roleAbilities[3].place(board, p.x, p.y, token, playerIndex, placedThisTurnBefore);
         } else {
           role.place(board, p.x, p.y, token);
         }
-
         const placedV = board[p.y][p.x];
-        // 還原
         board[p.y][p.x] = v0;
 
-        // 評分
         let score = 0;
         score += this._aiEvalCenter(N, p.x, p.y) * 0.8;
         score += this._aiCountNeighbors(board, p.x, p.y) * 1.6;
 
-        // 羅根第二手（灰叉）：更偏向靠近敵方棋
         if (roleIndex === 3 && placedThisTurnBefore === 1) {
           score += this._aiCountNeighbors(board, p.x, p.y) * 2.2;
         }
 
-        // 覆蓋（力庫姆）：若覆蓋到對方棋，多給分
         if (roleIndex === 2 && v0 > 0 && v0 !== token) score += 6;
 
-        if (!best || score > best.score) best = { ...p, score, placedV };
+        if (!best || score > best.score) best = { x: p.x, y: p.y, score, placedV };
       } catch (e) {
         board[p.y][p.x] = v0;
       }
     }
 
-    if (!best) return false;
+    if (!best) {
+      // 正常不會到這裡（因為 legalCandidates 一定有）
+      return false;
+    }
 
     let ok = false;
     this.placePiece(fakeSocket, { roomId, x: best.x, y: best.y }, (res) => { ok = !!res?.ok; });
