@@ -90,6 +90,22 @@
         line-height: 1.2;
       }
 
+      /* ✅ 下拉選單（給 AI 角色用） */
+      select {
+        border-radius: 14px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        outline: none;
+        font-size: 14px;
+      }
+      .aiControls select {
+        width: auto;
+        min-width: 140px;
+      }
+
+
       .appRoot {
         min-height: 100vh;
         min-height: 100dvh;
@@ -368,6 +384,22 @@
         border: 1px solid rgba(255, 255, 255, 0.14);
         background: rgba(255, 255, 255, 0.08);
       }
+
+      /* ✅ AI controls */
+      .aiBadge {
+        border-color: rgba(255, 193, 7, 0.35);
+        background: rgba(255, 193, 7, 0.12);
+      }
+      .aiControls {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .aiControls .tinyBtn {
+        padding: 6px 10px;
+      }
+
 
       /* ===== Board（吃 --cell / --piece） ===== */
       .boardWrap {
@@ -1535,7 +1567,7 @@
         if (serverUrl) return io(serverUrl, { transports: ['websocket', 'polling'] });
         return io();
       }
-
+      
       function deepCopyBoard(b) {
         return Array.isArray(b) ? b.map((row) => row.slice()) : [];
       }
@@ -2117,9 +2149,26 @@
         const [selectedColor, setSelectedColor] = React.useState(null);
 
         // ✅ DUAL：角色1/角色2
+        // ✅ DUAL：角色1/角色2
         const [selectedRole1, setSelectedRole1] = React.useState(null);
         const [selectedRole2, setSelectedRole2] = React.useState(null);
         const [pickingSlot, setPickingSlot] = React.useState(1);
+
+        // ✅ NEW：房主幫 AI 選角也走全螢幕 ROLE 介面
+        // pickingFor: 'self' | 'ai'
+        const [pickingFor, setPickingFor] = React.useState('self');
+        const [aiPickingTarget, setAiPickingTarget] = React.useState(null); // AI 的 id 或 name（後端 target 用）
+
+        function getPlayerByTarget(r, target) {
+          const list = r?.players || [];
+          if (!target) return null;
+          return (
+            list.find((p) => p?.id === target) ||
+            list.find((p) => String(p?.name || '').trim() === String(target).trim()) ||
+            null
+          );
+        }
+
 
         const [highlightSources, setHighlightSources] = React.useState([]);
         const [highlightTargets, setHighlightTargets] = React.useState([]);
@@ -2674,6 +2723,10 @@
           audioRef.current?.uiClick();
           if (!room) return;
 
+          // ✅ 自己選角
+          setPickingFor('self');
+          setAiPickingTarget(null);
+
           try {
             if (document.activeElement && document.activeElement.blur) {
               document.activeElement.blur();
@@ -2687,10 +2740,101 @@
           setView('ROLE');
         }
 
+        // ✅ NEW：房主幫 AI 選角（同樣跳到全螢幕 ROLE）
+        function openAiRoleSelect(targetIdOrName, slot) {
+          audioRef.current?.uiClick();
+          if (!room) return;
+
+          setPickingFor('ai');
+          setAiPickingTarget(targetIdOrName);
+
+          try {
+            if (document.activeElement && document.activeElement.blur) {
+              document.activeElement.blur();
+            }
+          } catch (e) {}
+          setupVisualViewportVars();
+          setTimeout(() => setupVisualViewportVars(), 0);
+
+          const s = slot === 2 ? 2 : 1;
+          setPickingSlot(s);
+          setView('ROLE');
+        }
+        // ✅ 只在「同一個玩家」內做 DUAL 兩角色不能重複
+        function getPickingPlayer(r0) {
+          if (!r0) return null;
+          if (pickingFor === 'ai') {
+            return getPlayerByTarget(r0, aiPickingTarget);
+          }
+          // self：用目前 me（同名回歸也 OK）
+          return findMePlayer(r0, socket?.id, nameRef.current);
+        }
+
+        // ✅ 回傳：目前正在挑的 slot 的「另一槽」角色（只檢查同一玩家）
+        function getOtherRoleIndexForSamePlayer(r0) {
+          if (!r0 || r0.mode !== 'DUAL') return null;
+
+          if (pickingFor === 'ai') {
+            const p = getPickingPlayer(r0);
+            if (!p) return null;
+            return pickingSlot === 1 ? p.roleIndex2 : p.roleIndex1;
+          }
+
+          // self：用前端 state（最即時）
+          return pickingSlot === 1 ? selectedRole2 : selectedRole1;
+        }
+
+        // ✅ ROLE UI 用：這個角色是否要被禁用（只禁同玩家另一槽）
+        function isRoleDisabledForCurrentPicker(roleIdx) {
+          const r0 = roomRef.current || room;
+          if (!r0 || r0.mode !== 'DUAL') return false; // SINGLE：不禁用（跨玩家可重複）
+          const other = getOtherRoleIndexForSamePlayer(r0);
+          return typeof other === 'number' && other === roleIdx;
+        }
+
+
         function confirmRole(roleIndex) {
           audioRef.current?.uiClick();
           if (!room) return;
 
+          // =========================================================
+          // ✅ (A) 房主幫 AI 選角：走 setAiRole（後端事件由 emitTry 嘗試）
+          // =========================================================
+          if (pickingFor === 'ai') {
+            const target = aiPickingTarget;
+            const r0 = roomRef.current || room;
+            const p = getPlayerByTarget(r0, target);
+
+            if (!target || !p) {
+              alert('AI 玩家不存在（可能剛被移除或房間刷新）');
+              setPickingFor('self');
+              setAiPickingTarget(null);
+              setView('ROOM');
+              return;
+            }
+
+            // DUAL：同一 AI 的 角色1/角色2 不可重複
+            if (room?.mode === 'DUAL') {
+              const other = pickingSlot === 1 ? p.roleIndex2 : p.roleIndex1;
+              if (other === roleIndex) {
+                alert('同一 AI 的 角色1 / 角色2 不能重複');
+                return;
+              }
+            }
+
+            // ✅ 直接請後端設定 AI 角色
+            setAiRole(target, roleIndex, pickingSlot);
+
+            // 收尾
+            setPickingFor('self');
+            setAiPickingTarget(null);
+            setView('ROOM');
+            return;
+          }
+
+          // =========================================================
+          // ✅ (B) 自己選角：維持原本 pickRole
+          // =========================================================
           if (room?.mode === 'DUAL') {
             const other = pickingSlot === 1 ? selectedRole2 : selectedRole1;
             if (other === roleIndex) {
@@ -2721,6 +2865,7 @@
           setView('ROOM');
         }
 
+
         function readyUp() {
           audioRef.current?.uiClick();
           if (selectedColor === null) return alert('請先選擇顏色');
@@ -2740,6 +2885,278 @@
         function startGame() {
           audioRef.current?.uiClick();
           socket.emit('startGame', { roomId: room.id });
+        }
+
+        /* =========================================================
+          ✅ AI helpers (front-end)
+          - 會嘗試多個事件名稱，後端只要接其中一個即可
+          ========================================================= */
+        function isAiPlayer(p) {
+          if (!p) return false;
+          if (p.isAI || p.isAi || p.ai || p.bot) return true;
+          const n = String(p.name || '').trim().toLowerCase();
+          return n.startsWith('ai') || n.startsWith('bot') || n.includes('[ai]') || n.includes('(ai)');
+        }
+
+        // 依序嘗試多個事件名稱（避免你後端事件名還沒定案）
+        function emitTry(eventNames, payload, cb, timeoutMs = 700) {
+          if (!socket) return cb?.({ ok: false, message: 'socket not ready' });
+          const names = Array.isArray(eventNames) ? eventNames.filter(Boolean) : [eventNames];
+          let i = 0;
+          let done = false;
+
+          const tryOne = () => {
+            if (done) return;
+            if (i >= names.length) {
+              done = true;
+              cb?.({ ok: false, message: 'no handler matched (front-end tried events: ' + names.join(', ') + ')' });
+              return;
+            }
+            const ev = names[i++];
+            let timer = null;
+
+            try {
+              socket.emit(ev, payload, (res) => {
+                if (done) return;
+                done = true;
+                if (timer) clearTimeout(timer);
+                cb?.(res);
+              });
+            } catch (e) {
+              // 直接換下一個
+            }
+
+            timer = setTimeout(() => {
+              if (done) return;
+              tryOne();
+            }, timeoutMs);
+          };
+
+          tryOne();
+        }
+
+        function randInt(n) {
+          return Math.floor(Math.random() * Math.max(1, n));
+        }
+
+        function pickRandomColorIndex() {
+          return randInt(COLORS.length);
+        }
+        // ✅ 取得「同一玩家」另一槽角色：優先用 state，state 沒值就用 roomRef(後端同步) 補
+        function getMyOtherRoleForSlot(slot) {
+          const r0 = roomRef.current || room;
+          if (!r0 || r0.mode !== 'DUAL') return null;
+
+          const s = slot === 2 ? 2 : 1;
+
+          // 1) 先吃前端 state（最快）
+          const otherState = s === 1 ? selectedRole2 : selectedRole1;
+          if (typeof otherState === 'number') return otherState;
+
+          // 2) state 還沒更新 → 吃 roomRef 的 me（後端同步）
+          const me0 = findMePlayer(r0, socket?.id, nameRef.current);
+          if (!me0) return null;
+
+          const otherRoom = s === 1 ? me0.roleIndex2 : me0.roleIndex1;
+          return typeof otherRoom === 'number' ? otherRoom : null;
+        }
+
+        function pickRandomRoleIndex(excludeSet) {
+          const ban = excludeSet ? new Set(excludeSet) : new Set();
+          const pool = [];
+          for (let i = 0; i < ROLES.length; i++) {
+            if (!ban.has(i)) pool.push(i);
+          }
+          if (!pool.length) return 0;
+          return pool[randInt(pool.length)];
+        }
+
+
+        /* ✅ 自己(玩家)一鍵隨機選角：SINGLE 1顆 / DUAL 兩角不重複 */
+        function setMyRoleDirect(roleIndex, slot) {
+          audioRef.current?.uiClick();
+          if (!room) return;
+
+          if (room?.mode === 'DUAL') {
+            const s = slot === 2 ? 2 : 1;
+
+            // ✅ 這裡不要只看 state：用「state + roomRef」取最可靠的另一槽角色
+            const other = getMyOtherRoleForSlot(s);
+
+            // ✅ 保底：如果撞到另一槽 → 重新抽（排除 other）
+            if (typeof other === 'number' && other === roleIndex) {
+              roleIndex = pickRandomRoleIndex([other]);
+              // 極端保護（理論上不會發生，除非 ROLES 只有 1 個）
+              if (roleIndex === other && ROLES.length > 1) roleIndex = (other + 1) % ROLES.length;
+            }
+
+            if (s === 1) setSelectedRole1(roleIndex);
+            else setSelectedRole2(roleIndex);
+
+            socket.emit('pickRole', { roomId: room.id, roleIndex, slot: s }, (res) => {
+              if (res.ok) setRoom(res.room);
+              else if (res?.message) alert(res.message);
+            });
+          } else {
+            setSelectedRole1(roleIndex);
+            setSelectedRole2(null);
+
+            socket.emit('pickRole', { roomId: room.id, roleIndex }, (res) => {
+              if (res.ok) setRoom(res.room);
+              else if (res?.message) alert(res.message);
+            });
+          }
+        }
+
+
+        function randomPickMyRole(slot) {
+          if (!room) return;
+          const s = slot === 2 ? 2 : 1;
+
+          const exclude = [];
+          if (room?.mode === 'DUAL') {
+            const other = getMyOtherRoleForSlot(s);
+            if (typeof other === 'number') exclude.push(other);
+          }
+
+          const r = pickRandomRoleIndex(exclude);
+          setMyRoleDirect(r, s);
+        }
+
+
+        /* ✅ AI 角色下拉 onChange */
+        function onSelectAiRole(target, slot, ev) {
+          const v = ev?.target?.value;
+          if (v === '' || v === null || v === undefined) return;
+          const idx = Number(v);
+          if (Number.isNaN(idx)) return;
+          setAiRole(target, idx, slot);
+        }
+
+
+        // ✅ 新增 AI（房主）
+        function addAiPlayer() {
+          audioRef.current?.uiClick();
+          const rid = roomRef.current?.id || room?.id;
+          if (!rid) return;
+
+          emitTry(
+            ['addAi', 'addAI', 'addAIPlayer', 'addBot', 'addRobot'],
+            { roomId: rid },
+            (res) => {
+              if (res?.ok && res.room) {
+                roomRef.current = res.room;
+                setRoom(res.room);
+              } else {
+                alert(res?.message || '新增 AI 失敗（後端尚未接 addAi 事件？）');
+              }
+            }
+          );
+        }
+
+        // ✅ 設定 AI 顏色（房主）
+        function setAiColor(targetIdOrName, colorIndex) {
+          audioRef.current?.uiClick();
+          const rid = roomRef.current?.id || room?.id;
+          if (!rid) return;
+
+          emitTry(
+            ['setAiColor', 'setAIColor', 'aiPickColor', 'pickColorFor', 'pickColorByHost'],
+            { roomId: rid, target: targetIdOrName, colorIndex },
+            (res) => {
+              if (res?.ok && res.room) {
+                roomRef.current = res.room;
+                setRoom(res.room);
+              } else if (res?.message) {
+                alert(res.message);
+              }
+            }
+          );
+        }
+
+        // ✅ 設定 AI 角色（房主）
+        // - SINGLE: roleIndex
+        // - DUAL: roleIndex + slot
+        function setAiRole(targetIdOrName, roleIndex, slot) {
+          audioRef.current?.uiClick();
+          const rid = roomRef.current?.id || room?.id;
+          if (!rid) return;
+
+          // ✅ 先在前端擋掉 DUAL「角色1/角色2 重複」：不送出、也不提醒
+          const r0 = roomRef.current || room;
+          if (r0?.mode === 'DUAL') {
+            const pl = (r0?.players || []).find(
+              (p) => p?.id === targetIdOrName || p?.name === targetIdOrName
+            );
+
+            // 兼容不同欄位命名：roleIndex / roleIndex2 或 roles[0]/roles[1]
+            const cur1 =
+              typeof pl?.roleIndex === 'number'
+                ? pl.roleIndex
+                : Array.isArray(pl?.roles)
+                  ? pl.roles[0]
+                  : undefined;
+
+            const cur2 =
+              typeof pl?.roleIndex2 === 'number'
+                ? pl.roleIndex2
+                : Array.isArray(pl?.roles)
+                  ? pl.roles[1]
+                  : undefined;
+
+            if (slot === 1 && roleIndex === cur2) return;
+            if (slot === 2 && roleIndex === cur1) return;
+          }
+
+          const payload =
+            r0?.mode === 'DUAL'
+              ? { roomId: rid, target: targetIdOrName, roleIndex, slot }
+              : { roomId: rid, target: targetIdOrName, roleIndex };
+
+          emitTry(
+            ['setAiRole', 'setAIRole', 'aiPickRole', 'pickRoleFor', 'pickRoleByHost'],
+            payload,
+            (res) => {
+              if (res?.ok && res.room) {
+                roomRef.current = res.room;
+                setRoom(res.room);
+              } else if (res?.message) {
+                // ✅ 後端若回「不能重複」：直接忽略，不跳提醒
+                const msg = String(res.message || '');
+                if (
+                  (r0?.mode === 'DUAL') &&
+                  (msg.includes('不能重複') ||
+                  msg.includes('角色') && msg.includes('重複') ||
+                  msg.toLowerCase().includes('duplicate') ||
+                  msg.toLowerCase().includes('same'))
+                ) {
+                  return;
+                }
+                alert(res.message);
+              }
+            }
+          );
+        }
+
+
+        // ✅ AI 一鍵隨機（顏色 + 角色；DUAL 會確保 1/2 不重複）
+        function randomizeAiAll(p) {
+          const target = p?.id || p?.name;
+          if (!target) return;
+
+          // color
+          setAiColor(target, pickRandomColorIndex());
+
+          // role
+          if (room?.mode === 'DUAL') {
+            const r1 = pickRandomRoleIndex([]);
+            const r2 = pickRandomRoleIndex([r1]);
+            setAiRole(target, r1, 1);
+            setAiRole(target, r2, 2);
+          } else {
+            const r = pickRandomRoleIndex([]);
+            setAiRole(target, r, 1);
+          }
         }
 
         function cancelGinyu() {
@@ -3392,8 +3809,24 @@
 
                     e(
                       'div',
-                      { className: 'row', style: { marginTop: 10 } },
+                      { className: 'row', style: { marginTop: 10, flexWrap: 'wrap' } },
                       e('button', { onClick: readyUp }, '準備完成'),
+
+                      // ✅ 房主：新增 AI
+                      room?.hostId === socket?.id &&
+                        e(
+                          'button',
+                          {
+                            onClick: addAiPlayer,
+                            style: {
+                              background: 'linear-gradient(135deg, rgba(255,193,7,0.30), rgba(255,193,7,0.12))',
+                              border: '1px solid rgba(255,255,255,0.18)',
+                            },
+                            title: '由房主新增一位 AI 對手（後端需支援 addAi 事件其一）',
+                          },
+                          '新增 AI'
+                        ),
+
                       canStart &&
                         e(
                           'button',
@@ -3407,6 +3840,7 @@
                           'Start Game'
                         )
                     )
+
                   )
               ),
 
@@ -3428,9 +3862,14 @@
 
                     const color = typeof p.colorIndex === 'number' ? COLORS[p.colorIndex] : 'rgba(255,255,255,0.25)';
 
+                    const ai = isAiPlayer(p);
+                    const isHost = room?.hostId === socket?.id;
+
                     return e(
                       'div',
                       { key: p.id || p.name, className: 'playerLine' },
+
+                      // left
                       e(
                         'div',
                         { className: 'playerLeft' },
@@ -3438,12 +3877,111 @@
                         e(
                           'div',
                           { style: { minWidth: 0 } },
-                          e('div', { className: 'playerName' }, p.name || 'Player'),
+                          e(
+                            'div',
+                            { className: 'playerName' },
+                            p?.name || 'Player',
+                            ai ? e('span', { className: 'badge aiBadge', style: { marginLeft: 8 } }, 'AI') : null
+                          ),
                           e('div', { className: 'playerMeta' }, roleText)
                         )
                       ),
-                      e('div', { className: 'badge' }, p.ready ? '✅ Ready' : p.connected === false ? '🔌 斷線' : '…')
+
+                      // right
+                      e(
+                        'div',
+                        { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 } },
+
+                        // badges
+                        e(
+                          'div',
+                          { className: 'rowWrap', style: { justifyContent: 'flex-end' } },
+                          p.ready ? e('span', { className: 'badge' }, '已準備') : e('span', { className: 'badge' }, '未準備'),
+                          (room?.hostId === p.id || room?.hostId === p?.id) ? e('span', { className: 'badge' }, '房主') : null
+                        ),
+
+                        // ✅ AI controls (only host & only in LOBBY)
+                        ai && isHost && room?.status === 'LOBBY'
+                          ? e(
+                              'div',
+                              { className: 'aiControls' },
+
+                              e(
+                                'button',
+                                { className: 'tinyBtn', onClick: () => randomizeAiAll(p), title: '隨機顏色 + 角色（DUAL 會自動避免重複）' },
+                                'AI 隨機'
+                              ),
+
+                              // color pick
+                              e(
+                                'div',
+                                { className: 'rowWrap', style: { justifyContent: 'flex-end' } },
+                                COLORS.map((c, i) =>
+                                  e('div', {
+                                    key: i,
+                                    className: 'choice',
+                                    onClick: () => setAiColor(p?.id || p?.name, i),
+                                    title: '設定 AI 顏色',
+                                    style: {
+                                      background: c,
+                                      width: 26,
+                                      height: 26,
+                                      borderRadius: 10,
+                                      outline:
+                                        typeof p?.colorIndex === 'number' && p.colorIndex === i
+                                          ? '2px solid rgba(255,255,255,0.9)'
+                                          : 'none',
+                                    },
+                                  })
+                                )
+                              ),
+
+                              // ✅ role pick：改成「按鈕 → 全螢幕選角」
+                              room?.mode === 'DUAL'
+                                ? e(
+                                    React.Fragment,
+                                    null,
+                                    e(
+                                      'button',
+                                      {
+                                        className: 'tinyBtn',
+                                        onClick: () => openAiRoleSelect(p?.id || p?.name, 1),
+                                        title: '房主幫 AI 選擇 角色1（全螢幕）',
+                                      },
+                                      typeof p?.roleIndex1 === 'number'
+                                        ? `AI 角色1：${ROLES[p.roleIndex1]?.name}（重選）`
+                                        : 'AI 角色1：未選（點我選）'
+                                    ),
+                                    e(
+                                      'button',
+                                      {
+                                        className: 'tinyBtn',
+                                        onClick: () => openAiRoleSelect(p?.id || p?.name, 2),
+                                        title: '房主幫 AI 選擇 角色2（全螢幕）',
+                                      },
+                                      typeof p?.roleIndex2 === 'number'
+                                        ? `AI 角色2：${ROLES[p.roleIndex2]?.name}（重選）`
+                                        : 'AI 角色2：未選（點我選）'
+                                    )
+                                  )
+                                : e(
+                                    'button',
+                                    {
+                                      className: 'tinyBtn',
+                                      onClick: () => openAiRoleSelect(p?.id || p?.name, 1),
+                                      title: '房主幫 AI 選擇 角色（全螢幕）',
+                                    },
+                                    typeof p?.roleIndex === 'number'
+                                      ? `AI 角色：${ROLES[p.roleIndex]?.name}（重選）`
+                                      : 'AI 角色：未選（點我選）'
+                                  )
+
+                            )
+                          : null
+                      )
                     );
+
+
                   })
               )
             ),
@@ -3732,8 +4270,49 @@
             e(RoleSelectScreen, {
               room,
               slot: pickingSlot,
-              selectedRole: room?.mode === 'DUAL' ? (pickingSlot === 1 ? selectedRole1 : selectedRole2) : selectedRole1,
-              selectedOtherRole: room?.mode === 'DUAL' ? (pickingSlot === 1 ? selectedRole2 : selectedRole1) : null,
+
+              // ✅ 依「正在選角的人」決定 selectedRole / blockedRoleIndex
+              selectedRole: (() => {
+                const r0 = roomRef.current || room;
+                if (!r0) return null;
+
+                // AI：讀 AI 自己的 roleIndex1/2 或 roleIndex
+                if (pickingFor === 'ai') {
+                  const p = getPlayerByTarget(r0, aiPickingTarget);
+                  if (!p) return null;
+                  if (r0.mode === 'DUAL') return pickingSlot === 1 ? p.roleIndex1 : p.roleIndex2;
+                  return p.roleIndex;
+                }
+
+                // self：沿用你原本的 state
+                if (r0.mode === 'DUAL') return pickingSlot === 1 ? selectedRole1 : selectedRole2;
+                return selectedRole1;
+              })(),
+
+              // ✅ DUAL 才有 blocked：只擋「同一個玩家」另一槽
+              blockedRoleIndex: (() => {
+                const r0 = roomRef.current || room;
+                if (!r0 || r0.mode !== 'DUAL') return null;
+
+                if (pickingFor === 'ai') {
+                  const p = getPlayerByTarget(r0, aiPickingTarget);
+                  if (!p) return null;
+                  const other = pickingSlot === 1 ? p.roleIndex2 : p.roleIndex1;
+                  return typeof other === 'number' ? other : null;
+                }
+
+                const other = pickingSlot === 1 ? selectedRole2 : selectedRole1;
+                return typeof other === 'number' ? other : null;
+              })(),
+
+              // ✅ 顯示用：你是在幫誰選角
+              pickerLabel: (() => {
+                if (pickingFor !== 'ai') return '你';
+                const r0 = roomRef.current || room;
+                const p = r0 ? getPlayerByTarget(r0, aiPickingTarget) : null;
+                return `AI：${p?.name || aiPickingTarget || 'AI'}`;
+              })(),
+
               onClose: () => {
                 audioRef.current?.uiClick();
                 setView('ROOM');
@@ -3741,6 +4320,7 @@
               onConfirm: confirmRole,
               audio: audioRef.current,
             }),
+
 
           // ===== PostGame Overlay =====
           postGame &&
@@ -3762,7 +4342,7 @@
         );
       }
 
-      function RoleSelectScreen({ room, slot, selectedRole, selectedOtherRole, onClose, onConfirm, audio }) {
+      function RoleSelectScreen({ room, slot, selectedRole, blockedRoleIndex, pickerLabel, onClose, onConfirm, audio }) {
         const n = ROLES.length;
         const [current, setCurrent] = React.useState(typeof selectedRole === 'number' ? selectedRole : 0);
 
@@ -3804,6 +4384,18 @@
             audio?.playRoleVoice(current);
           } catch (e) {}
         }, [current]);
+        function randomPick() {
+          audio?.uiClick?.();
+          // DUAL：不得與另一角色重複（只限制同一玩家）
+          const ban = typeof blockedRoleIndex === 'number' ? [blockedRoleIndex] : [];
+          const r = (() => {
+            const pool = [];
+            for (let i = 0; i < ROLES.length; i++) if (!ban.includes(i)) pool.push(i);
+            return pool.length ? pool[Math.floor(Math.random() * pool.length)] : 0;
+          })();
+          setCurrent(r);
+        }
+
 
         function scheduleDragUpdate(px) {
           dragPxRef.current = px;
@@ -3889,7 +4481,7 @@
         const snapPx = snapPxRef.current;
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
 
-        const blocked = room?.mode === 'DUAL' && typeof selectedOtherRole === 'number' ? selectedOtherRole : null;
+        const blocked = room?.mode === 'DUAL' && typeof blockedRoleIndex === 'number' ? blockedRoleIndex : null;
 
         return e(
           'div',
@@ -3904,7 +4496,10 @@
               e(
                 'div',
                 { className: 'brand' },
-                e('div', { className: 'title' }, room?.mode === 'DUAL' ? `選擇角色（角色${slot}）` : '選擇角色'),
+                e('div', { className: 'title' }, room?.mode === 'DUAL'
+                    ? `${pickerLabel || '你'}：選擇角色（角色${slot}）`
+                    : `${pickerLabel || '你'}：選擇角色`
+                  ),
                 e('div', { className: 'sub' }, '手機：滑動選卡｜桌機：點擊鎖定（避免滑鼠移動誤選）')
               ),
               e(
@@ -4082,6 +4677,7 @@
               room?.mode === 'DUAL' ? `確定為 角色${slot}` : '確定角色'
             )
           )
+
         );
       }
 

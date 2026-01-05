@@ -1,4 +1,4 @@
-// ================= server.js (ROOM TTL + REJOIN BY NAME + UNDO + BLOCK NEW JOIN DURING PLAYING) =================
+// ================= server.js (ROOM TTL + REJOIN BY NAME + UNDO + BLOCK NEW JOIN DURING PLAYING + AI ADD/CONFIG) =================
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -8,7 +8,6 @@ const GameManager = require('./gameManager');
 const app = express();
 const server = http.createServer(app);
 
-// ✅ 建議加上 transports 與 cors（Render / 跨網域時比較穩）
 const io = new Server(server, {
   cors: { origin: '*' },
   transports: ['websocket', 'polling'],
@@ -23,7 +22,6 @@ app.get('/', (req, res) => {
 });
 
 // ===== Room keep-alive =====
-// ✅ 房間 5 分鐘內不清除（保留棋局/回合/狀態），斷線重整可用「同名」回來
 const ROOM_TTL_MS = 5 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 30 * 1000;
 
@@ -49,6 +47,68 @@ function anyConnected(room) {
   return room?.players?.some((p) => p.connected);
 }
 
+// ===== Helpers for AI/config =====
+function isHost(room, socketId) {
+  return room?.hostId === socketId;
+}
+
+function findPlayer(room, playerId) {
+  return room?.players?.find((p) => p.id === playerId) || null;
+}
+
+function anyAI(room) {
+  return room?.players?.some((p) => p.isAI);
+}
+
+function genAiId(roomId) {
+  return `ai:${roomId}:${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function randomInt(n) {
+  return Math.floor(Math.random() * n);
+}
+
+function randomRoleIndex(excludeSet = new Set()) {
+  const pool = [];
+  for (let i = 0; i <= 5; i++) if (!excludeSet.has(i)) pool.push(i);
+  if (!pool.length) return null;
+  return pool[randomInt(pool.length)];
+}
+
+// ✅ 統一用 gameManager 的 roomUpdated（包含 roleInfo / turnMeta）
+function emitRoomUpdated(room) {
+  if (!room) return;
+  if (typeof gameManager._emitRoomUpdated === 'function') {
+    gameManager._emitRoomUpdated(room.id, room);
+  } else {
+    io.to(room.id).emit('roomUpdated', room);
+  }
+}
+
+// ✅ 配置完成判斷（顏色 + 角色(單/雙)）
+function isPlayerConfigured(room, p) {
+  if (!room || !p) return false;
+  if (p.colorIndex === null || p.colorIndex === undefined) return false;
+
+  if (room.mode === 'DUAL') {
+    const a = p.roleIndex1;
+    const b = p.roleIndex2;
+    if (typeof a !== 'number' || typeof b !== 'number') return false;
+    if (a === b) return false;
+    return true;
+  } else {
+    return typeof p.roleIndex === 'number';
+  }
+}
+
+// ✅ AI 自動 READY：只要配置完成就 ready=true
+function autoReadyIfAi(room, p) {
+  if (!room || !p) return;
+  if (p.isAI) {
+    p.ready = isPlayerConfigured(room, p);
+  }
+}
+
 setInterval(() => {
   const t = now();
   for (const roomId of Object.keys(rooms)) {
@@ -58,7 +118,6 @@ setInterval(() => {
     const last = room.lastActiveAt || 0;
     const expired = t - last > ROOM_TTL_MS;
 
-    // ✅ 只有「全部都不在線」且過期才刪
     if (expired && !anyConnected(room)) {
       delete rooms[roomId];
     }
@@ -66,7 +125,25 @@ setInterval(() => {
 }, CLEANUP_INTERVAL_MS);
 
 io.on('connection', (socket) => {
-  // ✅ 讓前端可送心跳（可有可無，但保險）
+  // ✅ AI host controls (role / color) - 多事件名 alias + cb 防呆
+  const wrapCb = (cb) => (typeof cb === 'function' ? cb : () => {});
+
+  // ---- Role ----
+  socket.on('setAiRole', (payload, cb) => gameManager.setAiRole?.(socket, payload, wrapCb(cb)));
+  socket.on('setAIRole', (payload, cb) => gameManager.setAiRole?.(socket, payload, wrapCb(cb)));
+  socket.on('aiPickRole', (payload, cb) => gameManager.setAiRole?.(socket, payload, wrapCb(cb)));
+  socket.on('pickRoleFor', (payload, cb) => gameManager.setAiRole?.(socket, payload, wrapCb(cb)));
+  socket.on('pickRoleByHost', (payload, cb) => gameManager.setAiRole?.(socket, payload, wrapCb(cb)));
+  socket.on('hostSetAiRole', (payload, cb) => gameManager.setAiRole?.(socket, payload, wrapCb(cb)));
+
+  // ---- Color ----
+  socket.on('setAiColor', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
+  socket.on('setAIColor', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
+  socket.on('aiPickColor', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
+  socket.on('pickColorFor', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
+  socket.on('pickColorByHost', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
+  socket.on('hostSetAiColor', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
+
   socket.on('pingRoom', (data, cb) => {
     const room = rooms[data?.roomId];
     if (room) touchRoom(room);
@@ -129,7 +206,7 @@ io.on('connection', (socket) => {
     touchRoom(room);
 
     cb({ ok: true, room });
-    io.to(roomId).emit('roomUpdated', room);
+    emitRoomUpdated(room);
   });
 
   socket.on('joinRoom', (data, cb) => {
@@ -141,21 +218,26 @@ io.on('connection', (socket) => {
 
     touchRoom(room);
 
-    // ✅ 1) 若房內已有「同名且在線」玩家：不允許再加入（避免重名分身）
+    if (name.toLowerCase() === 'ai') {
+      return cb({ ok: false, message: '此名稱保留，請換一個' });
+    }
+
     const sameNameOnline = room.players.find((p) => p.name === name && p.connected);
     if (sameNameOnline) {
       return cb({ ok: false, message: '此名稱已在房內使用中' });
     }
 
-    // ✅ 2) 同名重連：如果房內已存在同名「離線玩家」，就把他接回來（保留棋局、回合、勝場、角色、顏色…）
     const existing = room.players.find((p) => p.name === name && !p.connected);
 
     if (existing) {
+      if (existing.isAI) {
+        return cb({ ok: false, message: '此名稱保留，請換一個' });
+      }
+
       existing.id = socket.id;
       existing.connected = true;
       existing.lastSeenAt = now();
 
-      // 如果房主離線又回來，也同步 hostId（避免 hostId 指向不存在的 socket）
       if (!room.hostId || room.hostId === null) {
         room.hostId = socket.id;
       }
@@ -163,9 +245,8 @@ io.on('connection', (socket) => {
       socket.join(room.id);
 
       cb({ ok: true, room, rejoined: true });
-      io.to(room.id).emit('roomUpdated', room);
+      emitRoomUpdated(room);
 
-      // ✅ 讓所有人同步最新棋盤/回合（尤其是重連者）
       io.to(room.id).emit('placed', {
         board: room.board,
         turnIndex: room.turnIndex,
@@ -177,13 +258,10 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // ✅ 3) ⭐重要：棋局開始後，禁止任何「非同名回歸」的新玩家加入
-    //    只要不是 LOBBY，就視為棋局中（包含 PLAYING / ENDED）
     if (room.status !== 'LOBBY') {
       return cb({ ok: false, message: '該房間棋局已開始' });
     }
 
-    // ✅ 4) 正常加入（只限 LOBBY）
     if (room.players.length >= room.maxPlayers)
       return cb({ ok: false, message: '房間已滿' });
 
@@ -211,10 +289,9 @@ io.on('connection', (socket) => {
     socket.join(room.id);
 
     cb({ ok: true, room, rejoined: false });
-    io.to(room.id).emit('roomUpdated', room);
+    emitRoomUpdated(room);
   });
 
-  // ✅ 退出房間：真正移除玩家（不走保留）
   socket.on('leaveRoom', (data, cb) => {
     const room = rooms[data?.roomId];
     if (!room) return cb({ ok: false, message: '房間不存在' });
@@ -225,7 +302,6 @@ io.on('connection', (socket) => {
     room.players.splice(idx, 1);
     socket.leave(room.id);
 
-    // 若房主走了，轉交房主（簡單處理：第一位在線玩家，否則第一位玩家）
     if (room.hostId === socket.id) {
       const online = room.players.find((p) => p.connected);
       room.hostId = online?.id || room.players[0]?.id || null;
@@ -235,11 +311,239 @@ io.on('connection', (socket) => {
       delete rooms[room.id];
     } else {
       touchRoom(room);
-      io.to(room.id).emit('roomUpdated', room);
+      emitRoomUpdated(room);
     }
 
     cb({ ok: true });
   });
+
+  // =========================
+  // ✅ NEW: AI (host-only)
+  // =========================
+
+  socket.on('addAi', (data, cb) => {
+    const room = rooms[data?.roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    touchRoom(room);
+
+    if (!isHost(room, socket.id)) return cb?.({ ok: false, message: '只有房主可以新增 AI' });
+    if (room.status !== 'LOBBY') return cb?.({ ok: false, message: '遊戲開始後不可新增 AI' });
+
+    if (anyAI(room)) return cb?.({ ok: false, message: 'AI 已存在' });
+
+    if (room.players.length >= room.maxPlayers) return cb?.({ ok: false, message: '房間已滿' });
+
+    const aiId = genAiId(room.id);
+
+    room.players.push({
+      id: aiId,
+      name: 'AI',
+      isAI: true,
+
+      ready: false,
+      colorIndex: null,
+
+      roleIndex: null,
+      roleIndex1: null,
+      roleIndex2: null,
+
+      placedThisTurn: 0,
+      hasPlacedCross: false,
+      usedGinyuThisTurn: false,
+      usedGudoThisTurn: false,
+      usedJeiceThisTurn: false,
+      wins: 0,
+
+      connected: false,
+      lastSeenAt: now(),
+    });
+
+    emitRoomUpdated(room);
+    cb?.({ ok: true, room, aiId });
+  });
+
+  // ✅ NEW：一次隨機 AI 的 顏色+角色，並自動 READY
+  socket.on('randomAiSetup', (data, cb) => {
+    const room = rooms[data?.roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    touchRoom(room);
+
+    if (!isHost(room, socket.id)) return cb?.({ ok: false, message: '只有房主可以替 AI 隨機' });
+    if (room.status !== 'LOBBY') return cb?.({ ok: false, message: '遊戲開始後不可隨機 AI' });
+
+    const ai = data?.playerId ? findPlayer(room, data.playerId) : (room.players.find((p) => p.isAI) || null);
+    if (!ai || !ai.isAI) return cb?.({ ok: false, message: 'AI 玩家不存在' });
+
+    const colorCount = Number.isInteger(data?.colorCount) && data.colorCount > 0 ? data.colorCount : 8;
+
+    const used = new Set(room.players.filter((p) => p !== ai).map((p) => p.colorIndex).filter((v) => Number.isInteger(v)));
+    const colorPool = [];
+    for (let i = 0; i < colorCount; i++) if (!used.has(i)) colorPool.push(i);
+
+    const pool = colorPool.length ? colorPool : Array.from({ length: colorCount }, (_, i) => i);
+    ai.colorIndex = pool[randomInt(pool.length)];
+
+    if (room.mode === 'DUAL') {
+      const r1 = randomRoleIndex();
+      const r2 = randomRoleIndex(new Set([r1]));
+      if (r1 === null || r2 === null) return cb?.({ ok: false, message: '沒有可用角色' });
+      ai.roleIndex1 = r1;
+      ai.roleIndex2 = r2;
+    } else {
+      const r = randomRoleIndex();
+      if (r === null) return cb?.({ ok: false, message: '沒有可用角色' });
+      ai.roleIndex = r;
+    }
+
+    autoReadyIfAi(room, ai);
+
+    emitRoomUpdated(room);
+    cb?.({
+      ok: true,
+      aiId: ai.id,
+      colorIndex: ai.colorIndex,
+      roleIndex: room.mode === 'DUAL' ? null : ai.roleIndex,
+      roleIndex1: room.mode === 'DUAL' ? ai.roleIndex1 : null,
+      roleIndex2: room.mode === 'DUAL' ? ai.roleIndex2 : null,
+      ready: ai.ready,
+    });
+  });
+
+  // ✅ 房主幫某玩家（含 AI）設定顏色
+  socket.on('setPlayerColor', (data, cb) => {
+    const room = rooms[data?.roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    touchRoom(room);
+
+    if (!isHost(room, socket.id)) return cb?.({ ok: false, message: '只有房主可以設定他人顏色' });
+
+    const targetId = data?.playerId;
+    const colorIndex = data?.colorIndex ?? null;
+
+    const p = findPlayer(room, targetId);
+    if (!p) return cb?.({ ok: false, message: '玩家不存在' });
+
+    p.colorIndex = colorIndex;
+
+    // ✅ AI：若配置齊，自動 READY
+    autoReadyIfAi(room, p);
+
+    emitRoomUpdated(room);
+    cb?.({ ok: true, room });
+  });
+
+  // ✅ 房主幫某玩家（含 AI）設定角色（DUAL 要帶 slot=1/2）
+  socket.on('setPlayerRole', (data, cb) => {
+    const room = rooms[data?.roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    touchRoom(room);
+
+    if (!isHost(room, socket.id)) return cb?.({ ok: false, message: '只有房主可以設定他人角色' });
+
+    const targetId = data?.playerId;
+    const roleIndex = data?.roleIndex;
+    const slot = data?.slot;
+
+    const p = findPlayer(room, targetId);
+    if (!p) return cb?.({ ok: false, message: '玩家不存在' });
+
+    if (typeof roleIndex !== 'number') return cb?.({ ok: false, message: 'roleIndex 無效' });
+
+    if (room.mode !== 'DUAL') {
+      p.roleIndex = roleIndex;
+
+      autoReadyIfAi(room, p);
+      emitRoomUpdated(room);
+      return cb?.({ ok: true, room });
+    }
+
+    if (slot !== 1 && slot !== 2) {
+      return cb?.({ ok: false, message: 'DUAL 模式請指定角色槽位(slot=1/2)' });
+    }
+
+    const other = slot === 1 ? p.roleIndex2 : p.roleIndex1;
+    if (typeof other === 'number' && other === roleIndex) {
+      return cb?.({ ok: false, message: '同一玩家的 角色1 / 角色2 不能選相同角色' });
+    }
+
+    if (slot === 1) p.roleIndex1 = roleIndex;
+    else p.roleIndex2 = roleIndex;
+
+    autoReadyIfAi(room, p);
+    emitRoomUpdated(room);
+    cb?.({ ok: true, room });
+  });
+
+  // ✅ 房主幫某玩家（含 AI）隨機角色（DUAL 保證兩槽不重複）
+  socket.on('randomRole', (data, cb) => {
+    const room = rooms[data?.roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    touchRoom(room);
+
+    if (!isHost(room, socket.id)) return cb?.({ ok: false, message: '只有房主可以替他人隨機角色' });
+
+    const targetId = data?.playerId;
+    const slot = data?.slot ?? 1;
+
+    const p = findPlayer(room, targetId);
+    if (!p) return cb?.({ ok: false, message: '玩家不存在' });
+
+    if (room.mode !== 'DUAL') {
+      const pick = randomRoleIndex();
+      if (pick === null) return cb?.({ ok: false, message: '沒有可用角色' });
+      p.roleIndex = pick;
+
+      autoReadyIfAi(room, p);
+      emitRoomUpdated(room);
+      return cb?.({ ok: true, room, roleIndex: pick });
+    }
+
+    if (slot !== 1 && slot !== 2) {
+      return cb?.({ ok: false, message: 'DUAL 模式請指定角色槽位(slot=1/2)' });
+    }
+
+    const exclude = new Set();
+    if (slot === 1 && typeof p.roleIndex2 === 'number') exclude.add(p.roleIndex2);
+    if (slot === 2 && typeof p.roleIndex1 === 'number') exclude.add(p.roleIndex1);
+
+    const pick = randomRoleIndex(exclude);
+    if (pick === null) return cb?.({ ok: false, message: '沒有可用角色' });
+
+    if (slot === 1) p.roleIndex1 = pick;
+    else p.roleIndex2 = pick;
+
+    autoReadyIfAi(room, p);
+    emitRoomUpdated(room);
+    cb?.({ ok: true, room, roleIndex: pick, slot });
+  });
+
+  socket.on('setPlayerReady', (data, cb) => {
+    const room = rooms[data?.roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    touchRoom(room);
+
+    if (!isHost(room, socket.id)) return cb?.({ ok: false, message: '只有房主可以設定他人準備' });
+
+    const targetId = data?.playerId;
+    const ready = !!data?.ready;
+
+    const p = findPlayer(room, targetId);
+    if (!p) return cb?.({ ok: false, message: '玩家不存在' });
+
+    p.ready = ready;
+    emitRoomUpdated(room);
+    cb?.({ ok: true, room });
+  });
+
+  // =========================
+  // Existing events
+  // =========================
 
   socket.on('pickColor', (data, cb) => {
     const room = rooms[data?.roomId];
@@ -252,7 +556,7 @@ io.on('connection', (socket) => {
     touchRoom(room);
 
     cb({ ok: true, room });
-    io.to(room.id).emit('roomUpdated', room);
+    emitRoomUpdated(room);
   });
 
   socket.on('pickRole', (data, cb) => {
@@ -270,7 +574,7 @@ io.on('connection', (socket) => {
     if (room.mode !== 'DUAL') {
       p.roleIndex = roleIndex;
       cb({ ok: true, room });
-      io.to(room.id).emit('roomUpdated', room);
+      emitRoomUpdated(room);
       return;
     }
 
@@ -290,7 +594,7 @@ io.on('connection', (socket) => {
     else p.roleIndex2 = roleIndex;
 
     cb({ ok: true, room });
-    io.to(room.id).emit('roomUpdated', room);
+    emitRoomUpdated(room);
   });
 
   socket.on('readyUp', (data, cb) => {
@@ -308,6 +612,9 @@ io.on('connection', (socket) => {
       if (p.roleIndex1 === null || p.roleIndex2 === null) {
         return cb({ ok: false, message: 'DUAL 模式請先選擇 角色1 與 角色2' });
       }
+      if (p.roleIndex1 === p.roleIndex2) {
+        return cb({ ok: false, message: 'DUAL 的 角色1 / 角色2 不能重複' });
+      }
     } else {
       if (p.roleIndex === null) {
         return cb({ ok: false, message: '請先選擇角色' });
@@ -318,18 +625,33 @@ io.on('connection', (socket) => {
     touchRoom(room);
 
     cb({ ok: true, room });
-    io.to(room.id).emit('roomUpdated', room);
+    emitRoomUpdated(room);
   });
 
-  socket.on('startGame', (data) => {
+  // ✅ startGame：後端硬檢查（真人要 ready；AI 會自動 ready）
+  socket.on('startGame', (data, cb) => {
     const room = rooms[data?.roomId];
-    if (!room) return;
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
 
-    // ✅ 只能在 LOBBY 才能開始
-    if (room.hostId === socket.id && room.status === 'LOBBY') {
-      touchRoom(room);
-      gameManager.startGame(room.id);
+    if (room.hostId !== socket.id) return cb?.({ ok: false, message: '只有房主可以開始' });
+    if (room.status !== 'LOBBY') return cb?.({ ok: false, message: '目前不在大廳狀態' });
+
+    // ✅ 保險：先刷新 AI ready 狀態
+    for (const p of room.players) autoReadyIfAi(room, p);
+
+    const notConfigured = room.players.filter((p) => !isPlayerConfigured(room, p));
+    if (notConfigured.length) {
+      return cb?.({ ok: false, message: '尚有人未選擇完成（顏色/角色）' });
     }
+
+    const notReadyHumans = room.players.filter((p) => !p.isAI && !p.ready);
+    if (notReadyHumans.length) {
+      return cb?.({ ok: false, message: '尚有人未準備' });
+    }
+
+    touchRoom(room);
+    gameManager.startGame(room.id);
+    cb?.({ ok: true });
   });
 
   socket.on('place', (data, cb) => {
@@ -338,7 +660,6 @@ io.on('connection', (socket) => {
     gameManager.placePiece(socket, data, cb);
   });
 
-  // ✅ 新增：悔棋（巴特/羅根第 1 手）
   socket.on('undoMove', (data, cb) => {
     const room = rooms[data?.roomId];
     if (room) touchRoom(room);
@@ -424,7 +745,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    // ✅ 斷線不踢人：只標記離線，保留 5 分鐘
     for (const roomId in rooms) {
       const room = rooms[roomId];
       const index = room.players.findIndex((p) => p.id === socket.id);
@@ -433,13 +753,12 @@ io.on('connection', (socket) => {
         room.players[index].lastSeenAt = now();
         touchRoom(room);
 
-        // 若房主離線：暫時轉交給在線玩家（避免開局按鈕失效）
         if (room.hostId === socket.id) {
           const online = room.players.find((p) => p.connected);
           room.hostId = online?.id || room.hostId;
         }
 
-        io.to(roomId).emit('roomUpdated', room);
+        emitRoomUpdated(room);
         break;
       }
     }
