@@ -886,17 +886,22 @@
         white-space: nowrap;
       }
 
+      /* ✅ 讓 roleMain 變成「上卡片區 + 下說明區」兩段式佈局，
+      上方 carousel 會自動吃剩餘高度（等於扣掉下方說明的高度）。 */
       .roleMain {
         flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
-        justify-content: flex-start;            /* ✅ 改：內容從上往下排 */
+        justify-content: flex-start;
         gap: 12px;
+
         padding: 0 12px;
+        /* ✅ 保留：避免底部 dock 蓋到內容 */
         padding-bottom: calc(150px + env(safe-area-inset-bottom) + var(--vv-bottom));
 
-        overflow: auto;                         /* ✅ 新增：內容變多可捲動 */
-        -webkit-overflow-scrolling: touch;
+        /* ✅ 關鍵：不要整頁亂捲；需要捲動請交給 helpDrawer */
+        overflow: hidden;
       }
 
       /* ✅ 新增：卡片下方資訊區塊（名字+技能說明放這裡） */
@@ -1000,16 +1005,18 @@
       .carousel {
         position: relative;
 
-        /* ✅ 卡片變大：給它更高一點的舞台 */
-        height: min(640px, 74vh);
+        /* ✅ 關鍵：改成吃剩餘高度，不要再用 vh 固定高度 */
+        flex: 1;
+        min-height: 0;
+        height: auto;
 
         overflow: hidden;
-        touch-action: pan-y;
+        touch-action: pan-y; /* 允許上下（避免誤觸整頁），左右滑交給 JS */
         -webkit-user-select: none;
         user-select: none;
       }
 
-      /* ✅ 既然不顯示左右卡，左右遮罩漸層也關掉（避免暗邊） */
+      /* ✅ 不顯示左右卡，遮罩關掉 */
       .carousel::before,
       .carousel::after {
         display: none;
@@ -1021,18 +1028,18 @@
         display: flex;
         align-items: center;
         justify-content: center;
-
-        /* ✅ 只剩單張卡，不需要 3D 透視 */
         perspective: none;
       }
 
-      /* ✅ 單張卡：加大寬高 + 強制保持 1 倍，不要被縮成細邊 */
+      /* ✅ 單張卡：不要用 absolute（會讓 flex 置中失效），改回正常排版置中 */
       .roleCard {
-        position: absolute;
+        position: relative;
 
-        /* ✅ 變大：手機幾乎滿版，桌機上限提高 */
-        width: min(96vw, 520px);
-        height: min(68vh, 600px);
+        /* ✅ 用你卡圖直式比例（1024×1792 ≈ 0.571），高度受 carousel 限制時會自動縮 */
+        width: min(92vw, 420px);
+        aspect-ratio: 1024 / 1792;
+        height: auto;
+        max-height: 100%;
 
         border-radius: 22px;
         background: linear-gradient(
@@ -1054,21 +1061,21 @@
         will-change: transform, opacity, filter;
         backface-visibility: hidden;
 
-        /* ✅ 關鍵：預設就用正常大小 */
+        /* ✅ 單張卡固定正常大小 */
         transform: translate3d(0, 0, 0) scale(1);
         opacity: 1;
         filter: none;
 
+        /* ✅ 仍然讓滑動手勢在 carousel 上吃到 */
         pointer-events: none;
       }
 
-      /* 小螢幕再微調 padding（避免內容擠） */
       @media (max-width: 420px) {
         .roleCard {
+          width: min(94vw, 380px);
           padding: 16px;
         }
       }
-
 
       .roleCardHeader {
         display: flex;
@@ -5309,60 +5316,43 @@
               e(
                 'div',
                 { className: 'carouselInner' },
-                ROLES.map((r, i) => {
-                  const d = shortDelta(i, current);
-                  const de = d - dragProgress;
-                  const ae = Math.abs(de);
+                (() => {
+                  const r = ROLES[current];
+                  if (!r) return null;
 
-                  const baseShift = 112;
-                  const extra = ae > 1.35 ? 26 : 0;
-                  const tx = de * (baseShift + extra);
-
-                  const scale = ae < 0.01 ? 1.0 : ae < 1.0 ? 0.94 : 0.88;
-                  const ry = clamp(de, -2, 2) * 12;
-                  const rz = clamp(de, -2, 2) * -3.5;
-
-                  const opacity = ae < 0.35 ? 1.0 : ae < 1.2 ? 0.22 : ae < 2.1 ? 0.06 : 0;
-                  const blur = ae < 0.35 ? 0 : ae < 1.2 ? 0.6 : 1.2;
-                  const sat = ae < 0.35 ? 1.08 : 0.85;
-                  const contrast = ae < 0.35 ? 1.06 : 0.95;
-
-                  const isCenter = ae < 0.35;
-
+                  // ✅ 單張卡：不再算左右卡的 tx/scale/opacity/filter
                   const style = {
-                    transform: `translate3d(${tx}%, 0, 0) rotateY(${ry}deg) rotateZ(${rz}deg) scale(${scale})`,
-                    opacity,
-                    filter: `blur(${blur}px) saturate(${sat}) contrast(${contrast})`,
-                    zIndex: 1000 - Math.round(ae * 50),
+                    transform: 'translate3d(0,0,0) scale(1)',
+                    opacity: 1,
+                    filter: 'none',
+                    zIndex: 1000,
                     transition: dragRef.current.down
                       ? 'none'
                       : 'transform 220ms cubic-bezier(.2,.9,.2,1), opacity 220ms ease, filter 220ms ease',
-                    pointerEvents: isCenter ? 'auto' : 'none',
-                    boxShadow: isCenter ? '0 34px 90px rgba(0,0,0,0.62)' : '0 18px 55px rgba(0,0,0,0.45)',
-                    borderColor: isCenter ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.12)',
+                    pointerEvents: 'auto',
+                    boxShadow: '0 34px 90px rgba(0,0,0,0.62)',
+                    borderColor: 'rgba(255,255,255,0.28)',
                   };
-
-                  if (opacity === 0) style.transform = `translate3d(${tx}%,0,0) scale(0.72)`;
 
                   return e(
                     'div',
                     {
-                      key: i,
+                      key: current, // ✅ key 用 current，切換時才會換卡
                       className: 'roleCard',
                       style,
-                      onClick: () => setCurrent(i),
+                      onClick: () => setCurrent(current), // 保留點擊行為（其實等於 no-op）
                     },
 
                     CardArtLayer(r),
 
-                    /* ✅ 卡片內：只保留右上棋子 icon（你要保留的） */
+                    // ✅ 卡片內：只保留右上棋子 icon
                     e(
                       'div',
                       { className: 'roleCardHeader', style: { justifyContent: 'flex-end' } },
                       e('div', { className: 'roleIcon' }, e('div', { className: r.shape, style: { color: '#fff' } }))
                     )
                   );
-                })
+                })()
               )
             ),
 
