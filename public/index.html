@@ -1286,30 +1286,88 @@
         }
       }
       /* =========================================================
-        ✅ ResultScreen：手機版改成「棋盤在上、勝利卡在下」
-        條件對齊你 isGameMobile：coarse pointer + <920px
+        ✅ 只改「手機對局」的結算畫面（不影響桌機）
+        依賴：App root 會在手機對局時加上 .isGameMobile
         ========================================================= */
-      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
-        /* 用 flex 直接反轉上下順序（不改 DOM） */
-        .resultCard{
-          display: flex !important;
-          flex-direction: column !important;
-        }
 
-        /* ✅ 棋盤區在上 */
-        .resultRight{
-          order: 0;
-          border-bottom: 1px solid rgba(255,255,255,0.10);
-        }
-
-        /* ✅ 卡片區在下 */
-        .resultLeft{
-          order: 1;
-          border-bottom: none !important;
-          border-right: none !important;
-          padding-top: 14px;
-        }
+      /* 手機結算：整體改成上棋盤、下卡片 */
+      .appRoot.isGameMobile .resultCard{
+        display: flex !important;
+        flex-direction: column !important;
       }
+
+      /* ✅ 上方：棋盤區 */
+      .appRoot.isGameMobile .resultRight{
+        order: 0;
+        flex: 1 1 auto;
+        min-height: 0;
+
+        /* 讓棋盤靠上，不要把空間吃掉 */
+        align-items: flex-start;
+        justify-content: center;
+
+        padding: 10px 10px 6px;
+        overflow: hidden; /* 先避免整塊亂捲 */
+        border-bottom: 0 !important;
+      }
+
+      /* ✅ 下方：角色卡區（可縮小） */
+      .appRoot.isGameMobile .resultLeft{
+        order: 1;
+        flex: 0 0 auto;
+
+        padding: 10px 12px 14px;
+        border-top: 1px solid rgba(255,255,255,0.10);
+
+        border-right: none !important;
+        border-bottom: none !important;
+      }
+
+      /* ✅ 手機結算：縮小棋盤（不動桌機棋盤） */
+      .appRoot.isGameMobile .resultRight .board{
+        transform: scale(0.88);
+        transform-origin: top center;
+      }
+
+      /* 如果你的 result 裡面也包了 arena/platform，手機結算順便把立體拆掉（只影響結算區） */
+      .appRoot.isGameMobile .resultRight .arena{
+        padding: 0 !important;
+        background: none !important;
+        box-shadow: none !important;
+      }
+      .appRoot.isGameMobile .resultRight .arenaContent{
+        transform: none !important;
+      }
+      .appRoot.isGameMobile .resultRight .arenaStage{
+        --step: 0px;
+        width: var(--boardW) !important;
+        padding: 0 !important;
+        background: none !important;
+        box-shadow: none !important;
+      }
+      .appRoot.isGameMobile .resultRight .arenaStage::before,
+      .appRoot.isGameMobile .resultRight .arenaStage::after{
+        content: none !important;
+      }
+
+      /* ✅ 手機結算：卡片縮小（SINGLE） */
+      .appRoot.isGameMobile .resultCards{
+        --rcw: min(340px, 86vw);
+      }
+
+      /* ✅ 手機結算：DUAL 兩張維持並排、且縮小（不要被你 940px 那條改成上下排） */
+      .appRoot.isGameMobile .resultCards.dual{
+        --rcw: min(210px, 44vw);
+        grid-template-columns: repeat(2, minmax(0, var(--rcw))) !important;
+        justify-content: center;
+      }
+
+      /* 可選：手機結算卡片圓角與陰影稍微收斂（更省空間） */
+      .appRoot.isGameMobile .resultRoleCard{
+        border-radius: 18px;
+        box-shadow: 0 12px 36px rgba(0,0,0,0.38);
+      }
+
 
       .resultLeft{
         padding: 16px;
