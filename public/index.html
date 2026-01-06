@@ -1000,42 +1000,29 @@
         background: rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.14);
       }
-
+      
       /* ===== 手機：滑動選卡（只顯示當前一張）===== */
       .carousel {
         position: relative;
-
-        /* ✅ 關鍵：改成吃剩餘高度，不要再用 vh 固定高度 */
         flex: 1;
         min-height: 0;
         height: auto;
 
         overflow: hidden;
-        touch-action: pan-y; /* 允許上下（避免誤觸整頁），左右滑交給 JS */
+        touch-action: pan-y; /* 上下允許、左右交給 JS */
         -webkit-user-select: none;
         user-select: none;
       }
 
-      /* ✅ 不顯示左右卡，遮罩關掉 */
-      .carousel::before,
-      .carousel::after {
-        display: none;
+      /* ✅ 正在拖曳時：取消回彈 transition（更跟手） */
+      .carousel.dragging .roleCard {
+        transition: none !important;
       }
 
-      .carouselInner {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        perspective: none;
-      }
-
-      /* ✅ 單張卡：不要用 absolute（會讓 flex 置中失效），改回正常排版置中 */
+      /* ✅ 單張卡：加入 transition，並吃 CSS 變數（--dragx/--dragdeg） */
       .roleCard {
         position: relative;
 
-        /* ✅ 用你卡圖直式比例（1024×1792 ≈ 0.571），高度受 carousel 限制時會自動縮 */
         width: min(92vw, 420px);
         aspect-ratio: 1024 / 1792;
         height: auto;
@@ -1061,14 +1048,19 @@
         will-change: transform, opacity, filter;
         backface-visibility: hidden;
 
-        /* ✅ 單張卡固定正常大小 */
-        transform: translate3d(0, 0, 0) scale(1);
+        /* ✅ 關鍵：用 drag 變數做位移/微旋轉（仍只 render 1 張） */
+        transform: translate3d(var(--dragx, 0px), 0, 0) rotate(var(--dragdeg, 0deg)) scale(1);
+
+        /* ✅ 放手回彈手感 */
+        transition: transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1);
+
         opacity: 1;
         filter: none;
 
         /* ✅ 仍然讓滑動手勢在 carousel 上吃到 */
         pointer-events: none;
       }
+
 
       @media (max-width: 420px) {
         .roleCard {
@@ -2690,6 +2682,11 @@
         const [selectedRole1, setSelectedRole1] = React.useState(null);
         const [selectedRole2, setSelectedRole2] = React.useState(null);
         const [pickingSlot, setPickingSlot] = React.useState(1);
+        // ===== ROLE 單卡跟手 =====
+        const [roleCursor, setRoleCursor] = React.useState(0); // 你若已經有目前顯示哪張卡的 state，就用你的，不要重複
+        const [dragPx, setDragPx] = React.useState(0);
+        const [dragging, setDragging] = React.useState(false);
+        const dragStartXRef = React.useRef(0);
 
         // ✅ NEW：房主幫 AI 選角也走全螢幕 ROLE 介面
         // pickingFor: 'self' | 'ai'
@@ -3263,6 +3260,42 @@
           }
 
           return { winLine: null, winnerSlots: [], winnerRoleIdxs: roleIdxs };
+        }
+        function onRoleSwipeDown(ev) {
+          // 只處理主要指標（避免多指亂跳）
+          if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+          setDragging(true);
+          dragStartXRef.current = ev.clientX;
+          setDragPx(0);
+          try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) {}
+        }
+
+        function onRoleSwipeMove(ev) {
+          if (!dragging) return;
+          const dx = ev.clientX - dragStartXRef.current;
+          // 限制一下最大拖曳量，避免飛太遠
+          setDragPx(clamp(dx, -220, 220));
+        }
+
+        function onRoleSwipeEnd() {
+          if (!dragging) return;
+
+          const dx = dragPx;
+          setDragging(false);
+
+          // 滑動切換門檻
+          const TH = 70;
+
+          if (dx > TH) {
+            // 往右滑：上一張
+            setRoleCursor((i) => (i - 1 + ROLES.length) % ROLES.length);
+          } else if (dx < -TH) {
+            // 往左滑：下一張
+            setRoleCursor((i) => (i + 1) % ROLES.length);
+          }
+
+          // 放手回彈
+          setDragPx(0);
         }
 
         function startResult({ winnerIndex, winnerName, finalBoard, roomSnap }) {
@@ -5270,6 +5303,10 @@
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
         const blocked = room?.mode === 'DUAL' && typeof blockedRoleIndex === 'number' ? blockedRoleIndex : null;
 
+        // ✅ 單卡跟手：位移/旋轉（限制最大值避免拖太遠）
+        const followX = clamp(dragPx * 0.35, -90, 90);
+        const followDeg = clamp(dragPx * 0.03, -8, 8);
+
         return e(
           'div',
           { className: 'roleScreen' },
@@ -5309,10 +5346,16 @@
             'div',
             { className: 'roleMain' },
 
-            /* ===== 手機：carousel 卡片（卡面只留 右上icon + 右下直排名） ===== */
+            /* ===== 手機：carousel 卡片（仍只顯示目前這張，但拖曳時會微微跟手） ===== */
             e(
               'div',
-              { className: 'carousel', onPointerDown, onPointerMove, onPointerUp },
+              {
+                className: 'carousel' + (dragRef.current.down ? ' dragging' : ''),
+                onPointerDown,
+                onPointerMove,
+                onPointerUp,
+                onPointerCancel: onPointerUp, // ✅ 補強：避免來電/切視窗時卡住
+              },
               e(
                 'div',
                 { className: 'carouselInner' },
@@ -5320,18 +5363,24 @@
                   const r = ROLES[current];
                   if (!r) return null;
 
-                  // ✅ 單張卡：不再算左右卡的 tx/scale/opacity/filter
+                  // ✅ 單張卡：用 dragPx 轉成「微位移 + 微旋轉」
                   const style = {
-                    transform: 'translate3d(0,0,0) scale(1)',
+                    transform: `translate3d(${followX}px, 0, 0) rotate(${followDeg}deg) scale(1)`,
                     opacity: 1,
                     filter: 'none',
                     zIndex: 1000,
+
+                    // ✅ 拖曳時取消 transition（更跟手）；放手後回彈
                     transition: dragRef.current.down
                       ? 'none'
-                      : 'transform 220ms cubic-bezier(.2,.9,.2,1), opacity 220ms ease, filter 220ms ease',
-                    pointerEvents: 'auto',
+                      : 'transform 160ms cubic-bezier(.2,.9,.2,1)',
+
+                    // ✅ 讓手勢主要由 carousel 吃（不怕卡片內容擋）
+                    pointerEvents: 'none',
+
                     boxShadow: '0 34px 90px rgba(0,0,0,0.62)',
                     borderColor: 'rgba(255,255,255,0.28)',
+                    willChange: 'transform',
                   };
 
                   return e(
@@ -5340,7 +5389,6 @@
                       key: current, // ✅ key 用 current，切換時才會換卡
                       className: 'roleCard',
                       style,
-                      onClick: () => setCurrent(current), // 保留點擊行為（其實等於 no-op）
                     },
 
                     CardArtLayer(r),
@@ -5355,6 +5403,7 @@
                 })()
               )
             ),
+
 
             /* ===== 桌機：deck 卡片（同樣只留 icon + 右下直排名） ===== */
             e(
