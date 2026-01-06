@@ -996,40 +996,23 @@
         border: 1px solid rgba(255, 255, 255, 0.14);
       }
 
-      /* ===== 手機：滑動選卡 ===== */
+      /* ===== 手機：滑動選卡（只顯示當前一張）===== */
       .carousel {
         position: relative;
-        height: min(520px, 66vh);
+
+        /* ✅ 卡片變大：給它更高一點的舞台 */
+        height: min(640px, 74vh);
+
         overflow: hidden;
         touch-action: pan-y;
         -webkit-user-select: none;
         user-select: none;
       }
+
+      /* ✅ 既然不顯示左右卡，左右遮罩漸層也關掉（避免暗邊） */
       .carousel::before,
       .carousel::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        width: 64px;
-        z-index: 6;
-        pointer-events: none;
-      }
-      .carousel::before {
-        left: 0;
-        background: linear-gradient(
-          90deg,
-          rgba(11, 15, 25, 0.92),
-          rgba(11, 15, 25, 0)
-        );
-      }
-      .carousel::after {
-        right: 0;
-        background: linear-gradient(
-          270deg,
-          rgba(11, 15, 25, 0.92),
-          rgba(11, 15, 25, 0)
-        );
+        display: none;
       }
 
       .carouselInner {
@@ -1038,13 +1021,19 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        perspective: 900px;
+
+        /* ✅ 只剩單張卡，不需要 3D 透視 */
+        perspective: none;
       }
 
+      /* ✅ 單張卡：加大寬高 + 強制保持 1 倍，不要被縮成細邊 */
       .roleCard {
         position: absolute;
-        width: min(92vw, 420px);
-        height: min(56vh, 460px);
+
+        /* ✅ 變大：手機幾乎滿版，桌機上限提高 */
+        width: min(96vw, 520px);
+        height: min(68vh, 600px);
+
         border-radius: 22px;
         background: linear-gradient(
           180deg,
@@ -1055,16 +1044,31 @@
         box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
+
         padding: 18px;
         display: flex;
         flex-direction: column;
         gap: 10px;
+
         transform-origin: center;
-        pointer-events: none;
         will-change: transform, opacity, filter;
         backface-visibility: hidden;
-        transform-style: preserve-3d;
+
+        /* ✅ 關鍵：預設就用正常大小 */
+        transform: translate3d(0, 0, 0) scale(1);
+        opacity: 1;
+        filter: none;
+
+        pointer-events: none;
       }
+
+      /* 小螢幕再微調 padding（避免內容擠） */
+      @media (max-width: 420px) {
+        .roleCard {
+          padding: 16px;
+        }
+      }
+
 
       .roleCardHeader {
         display: flex;
