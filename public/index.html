@@ -883,18 +883,55 @@
         white-space: nowrap;
       }
 
-      /* ✅ 給底部 Dock 預留空間，避免被遮住 */
       .roleMain {
         flex: 1;
         display: flex;
         flex-direction: column;
-        justify-content: center;
+        justify-content: flex-start;            /* ✅ 改：內容從上往下排 */
         gap: 12px;
         padding: 0 12px;
-        padding-bottom: calc(
-          150px + env(safe-area-inset-bottom) + var(--vv-bottom)
-        );
+        padding-bottom: calc(150px + env(safe-area-inset-bottom) + var(--vv-bottom));
+
+        overflow: auto;                         /* ✅ 新增：內容變多可捲動 */
+        -webkit-overflow-scrolling: touch;
       }
+
+      /* ✅ 新增：卡片下方資訊區塊（名字+技能說明放這裡） */
+      .roleInfoBelow {
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(0,0,0,0.35);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        padding: 12px;
+        box-shadow: 0 18px 55px rgba(0,0,0,0.45);
+      }
+
+      .roleInfoBelow .titleRow{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+      }
+
+      .roleInfoBelow .bigName{
+        font-size: 20px;
+        font-weight: 1000;
+        letter-spacing: 0.5px;
+      }
+
+      .roleInfoBelow .desc{
+        margin-top: 8px;
+        color: rgba(255,255,255,0.78);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      /* 你原本的 roleStats 會 margin-top:auto；放到下面就不需要 */
+      .roleInfoBelow .roleStats{
+        margin-top: 10px;
+      }
+
 
       /* ✅ 底部 Dock：更「一體」＋鍵盤彈出也不擋按鈕 */
       .roleBottom {
@@ -1117,6 +1154,63 @@
       .desktopCard.dim {
         opacity: 0.55;
         filter: grayscale(0.2) saturate(0.8);
+      }
+      /* ===== 角色卡：支援整張 PNG 當卡面 ===== */
+      .roleCard,
+      .desktopCard {
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* 卡面 PNG */
+      .roleCard .cardArt,
+      .desktopCard .cardArt {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scale(1.02);
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      /* 薄暗角：讓字更清楚 */
+      .roleCard .cardShade,
+      .desktopCard .cardShade {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 40% 20%, rgba(255,255,255,0.06), transparent 45%),
+          linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.34));
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      /* 讓原本內容在圖上層 */
+      .roleCard > *,
+      .desktopCard > * {
+        position: relative;
+        z-index: 2;
+      }
+
+      /* 右下直排名字 */
+      .roleCard .cardTitleVertical,
+      .desktopCard .cardTitleVertical {
+        position: absolute;
+        right: 14px;
+        bottom: 14px;
+        z-index: 3;
+
+        writing-mode: vertical-rl;
+        text-orientation: upright;
+        letter-spacing: 2px;
+
+        font-weight: 1000;
+        font-size: 26px;
+        color: rgba(255,255,255,0.92);
+        text-shadow: 0 10px 18px rgba(0,0,0,0.55);
+        pointer-events: none;
       }
 
       @media (hover: hover) and (pointer: fine) {
@@ -1532,34 +1626,66 @@
         {
           name: '基紐',
           shape: 'circle',
+          cardArt: '/img/cards/ginyu.png',
+          useCardArt: true,
           desc: '回合開始可交換：選自己的基紐棋，與同行/同列的任一「非自己此角色」的正常棋交換（包含對手與自己另一角色）。使用後仍可正常落子。',
         },
         {
           name: '巴特',
           shape: 'star',
+          cardArt: '/img/cards/burter.png',
+          useCardArt: true,
           desc: '每回合可下兩子；但勝利需要 6 連線（同一玩家同一角色）。可在第二步前悔棋（回到本回合第一步之前）。',
         },
         {
           name: '力庫姆',
           shape: 'square',
+          cardArt: '/img/cards/recoome.png',
+          useCardArt: true,
           desc: '可覆蓋一般棋（不能覆蓋叉叉）。可覆蓋任何「非叉叉」棋（包含對手與自己另一角色）。',
         },
         {
           name: '羅根',
           shape: 'logan',
+          cardArt: '/img/cards/logan.png',
+          useCardArt: true,
           desc: '每回合兩步：第 1 步下正常棋，第 2 步下灰叉。可在第二步前悔棋（回到本回合第一步之前）。',
         },
         {
           name: '古杜',
           shape: 'triangle',
+          cardArt: '/img/cards/guldo.png',
+          useCardArt: true,
           desc: '回合開始可移動：選自己的古杜棋，選周圍一格的「非自己此角色」正常棋（包含對手與自己另一角色），將其移到該棋周圍空格。使用後仍可正常落子。',
         },
         {
           name: '吉斯',
           shape: 'jeice',
+          cardArt: '/img/cards/jeice.png',
+          useCardArt: true,
           desc: '粉碎球・擊退：發動後落子，若新落子相鄰(8方向)有「非自己此角色」正常棋，可選 1 顆將其往遠離方向擊退（最多 2 格；需後方是空格；不能擊退灰叉）。落子後可放棄擊退。',
         },
       ];
+
+      function CardArtLayer(role) {
+        if (!role?.useCardArt || !role?.cardArt) return null;
+
+        return e(
+          React.Fragment,
+          null,
+          e('img', {
+            className: 'cardArt',
+            src: role.cardArt,
+            alt: role.name,
+            onError: (ev) => {
+              // 避免檔案不存在出現破圖 icon
+              try { ev.target.style.display = 'none'; } catch (e) {}
+            },
+          }),
+          e('div', { className: 'cardShade' }),
+          e('div', { className: 'cardTitleVertical' }, role.name)
+        );
+      }
 
       function connectSocket() {
         const params = new URLSearchParams(location.search);
@@ -4409,7 +4535,6 @@
           document.body.style.overflow = 'hidden';
           setupVisualViewportVars();
           const t = setTimeout(() => setupVisualViewportVars(), 0);
-
           return () => {
             clearTimeout(t);
             document.body.style.overflow = prevOverflow;
@@ -4429,22 +4554,8 @@
         }, []);
 
         React.useEffect(() => {
-          try {
-            audio?.playRoleVoice(current);
-          } catch (e) {}
+          try { audio?.playRoleVoice(current); } catch (e) {}
         }, [current]);
-        function randomPick() {
-          audio?.uiClick?.();
-          // DUAL：不得與另一角色重複（只限制同一玩家）
-          const ban = typeof blockedRoleIndex === 'number' ? [blockedRoleIndex] : [];
-          const r = (() => {
-            const pool = [];
-            for (let i = 0; i < ROLES.length; i++) if (!ban.includes(i)) pool.push(i);
-            return pool.length ? pool[Math.floor(Math.random() * pool.length)] : 0;
-          })();
-          setCurrent(r);
-        }
-
 
         function scheduleDragUpdate(px) {
           dragPxRef.current = px;
@@ -4463,9 +4574,7 @@
           dragRef.current.v = 0;
           dragRef.current.pointerId = ev.pointerId;
           scheduleDragUpdate(0);
-          try {
-            ev.currentTarget.setPointerCapture(ev.pointerId);
-          } catch (e) {}
+          try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) {}
         }
 
         function onPointerMove(ev) {
@@ -4501,10 +4610,7 @@
           }
 
           scheduleDragUpdate(0);
-
-          try {
-            ev.currentTarget.releasePointerCapture(ev.pointerId);
-          } catch (e) {}
+          try { ev.currentTarget.releasePointerCapture(ev.pointerId); } catch (e) {}
         }
 
         function shortDelta(i, c) {
@@ -4526,10 +4632,8 @@
         });
 
         const role = ROLES[current];
-
         const snapPx = snapPxRef.current;
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
-
         const blocked = room?.mode === 'DUAL' && typeof blockedRoleIndex === 'number' ? blockedRoleIndex : null;
 
         return e(
@@ -4561,10 +4665,7 @@
               'button',
               {
                 className: 'ghost',
-                onClick: () => {
-                  audio?.uiClick?.();
-                  onClose();
-                },
+                onClick: () => { audio?.uiClick?.(); onClose(); },
               },
               '返回房間'
             )
@@ -4574,6 +4675,7 @@
             'div',
             { className: 'roleMain' },
 
+            /* ===== 手機：carousel 卡片（卡面只留 右上icon + 右下直排名） ===== */
             e(
               'div',
               { className: 'carousel', onPointerDown, onPointerMove, onPointerUp },
@@ -4613,9 +4715,7 @@
                     borderColor: isCenter ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.12)',
                   };
 
-                  if (opacity === 0) {
-                    style.transform = `translate3d(${tx}%,0,0) scale(0.72)`;
-                  }
+                  if (opacity === 0) style.transform = `translate3d(${tx}%,0,0) scale(0.72)`;
 
                   return e(
                     'div',
@@ -4623,43 +4723,23 @@
                       key: i,
                       className: 'roleCard',
                       style,
-                      onClick: () => {
-                        setCurrent(i);
-                      },
+                      onClick: () => setCurrent(i),
                     },
+
+                    CardArtLayer(r),
+
+                    /* ✅ 卡片內：只保留右上棋子 icon（你要保留的） */
                     e(
                       'div',
-                      { className: 'roleCardHeader' },
-                      e('div', { className: 'roleName' }, r.name),
+                      { className: 'roleCardHeader', style: { justifyContent: 'flex-end' } },
                       e('div', { className: 'roleIcon' }, e('div', { className: r.shape, style: { color: '#fff' } }))
-                    ),
-                    e(
-                      'div',
-                      { className: 'roleDesc' },
-                      r.desc,
-                      blocked !== null && blocked === i ? '（⚠️ 你的另一個角色已選這個，不能重複）' : ''
-                    ),
-                    e(
-                      'div',
-                      { className: 'roleStats' },
-                      e(
-                        'div',
-                        { className: 'stat' },
-                        e('div', null, '定位'),
-                        e('b', null, i === 1 || i === 5 ? '進攻' : i === 0 || i === 4 ? '操作' : '控制')
-                      ),
-                      e(
-                        'div',
-                        { className: 'stat' },
-                        e('div', null, '回合'),
-                        e('b', null, i === 1 || i === 3 ? '多步' : '單步')
-                      )
                     )
                   );
                 })
               )
             ),
 
+            /* ===== 桌機：deck 卡片（同樣只留 icon + 右下直排名） ===== */
             e(
               'div',
               { className: 'desktopDeck' },
@@ -4684,20 +4764,50 @@
                       try { audio?.playRoleVoice?.(i); } catch (e) {}
                     },
                   },
+
+                  CardArtLayer(r),
+
                   e(
                     'div',
-                    { className: 'roleCardHeader' },
-                    e('div', { className: 'roleName' }, r.name),
+                    { className: 'roleCardHeader', style: { justifyContent: 'flex-end' } },
                     e('div', { className: 'roleIcon' }, e('div', { className: r.shape, style: { color: '#fff' } }))
-                  ),
-                  e(
-                    'div',
-                    { className: 'roleDesc' },
-                    r.desc,
-                    blocked !== null && blocked === i ? '（⚠️ 你的另一個角色已選這個，不能重複）' : ''
                   )
                 );
               })
+            ),
+
+            /* ✅ 新增：卡片下方資訊區（把左上名字+中間技能說明移到這裡） */
+            e(
+              'div',
+              { className: 'roleInfoBelow' },
+              e(
+                'div',
+                { className: 'titleRow' },
+                e('div', { className: 'bigName' }, role?.name || '—'),
+                e('div', { className: role?.shape || 'circle', style: { '--piece': '22px', color: '#fff' } })
+              ),
+              e(
+                'div',
+                { className: 'desc' },
+                role?.desc || '',
+                blocked !== null && current === blocked ? '（⚠️ 你的另一個角色已選這個，不能重複）' : ''
+              ),
+              e(
+                'div',
+                { className: 'roleStats' },
+                e(
+                  'div',
+                  { className: 'stat' },
+                  e('div', null, '定位'),
+                  e('b', null, current === 1 || current === 5 ? '進攻' : current === 0 || current === 4 ? '操作' : '控制')
+                ),
+                e(
+                  'div',
+                  { className: 'stat' },
+                  e('div', null, '回合'),
+                  e('b', null, current === 1 || current === 3 ? '多步' : '單步')
+                )
+              )
             )
           ),
 
@@ -4726,7 +4836,6 @@
               room?.mode === 'DUAL' ? `確定為 角色${slot}` : '確定角色'
             )
           )
-
         );
       }
       function posKey(x, y) {
