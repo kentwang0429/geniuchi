@@ -886,33 +886,48 @@
         white-space: nowrap;
       }
 
-      /* ✅ 讓 roleMain 變成「上卡片區 + 下說明區」兩段式佈局，
-      上方 carousel 會自動吃剩餘高度（等於扣掉下方說明的高度）。 */
-      .roleMain {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        gap: 12px;
+      /* =========================================================
+        ✅ Mobile ROLE：技能說明透明浮層，固定在「選擇角色」按鈕上方
+        - 不佔版面（position: fixed）
+        - 不擋滑卡（pointer-events: none）
+        ========================================================= */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
 
-        padding: 0 12px;
-        /* ✅ 保留：避免底部 dock 蓋到內容 */
-        padding-bottom: calc(150px + env(safe-area-inset-bottom) + var(--vv-bottom));
+        /* ✅ 讓上方卡片區縮一點，避免被底部兩層（dock + info）蓋到 */
+        .roleMain{
+          padding-bottom: calc(280px + env(safe-area-inset-bottom) + var(--vv-bottom));
+        }
 
-        /* ✅ 關鍵：不要整頁亂捲；需要捲動請交給 helpDrawer */
-        overflow: hidden;
-      }
+        .roleInfoBelow{
+          position: fixed;
+          left: 12px;
+          right: 12px;
 
-      /* ✅ 新增：卡片下方資訊區塊（名字+技能說明放這裡） */
-      .roleInfoBelow {
-        border-radius: 18px;
-        border: 1px solid rgba(255,255,255,0.14);
-        background: rgba(0,0,0,0.35);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        padding: 12px;
-        box-shadow: 0 18px 55px rgba(0,0,0,0.45);
+          /* ✅ 固定在底部 dock（.roleBottom）上方
+            roleBottom 本身 bottom = calc(12px + var(--vv-bottom))
+            這裡再往上抬一段，確保不重疊 */
+          bottom: calc(12px + var(--vv-bottom) + env(safe-area-inset-bottom) + 98px);
+
+          z-index: 69; /* .roleBottom 是 70，這個要在它下面一層 */
+
+          /* ✅ 更透明 */
+          background: rgba(0,0,0,0.10);
+          border: 1px solid rgba(255,255,255,0.10);
+          box-shadow: none;
+
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+
+          /* ✅ 不擋卡片滑動 / 點擊 */
+          pointer-events: none;
+
+          /* ✅ 視覺更精簡 */
+          padding: 10px 12px;
+        }
+
+        .roleInfoBelow .desc{
+          color: rgba(255,255,255,0.78);
+        }
       }
 
       .roleInfoBelow .titleRow{
