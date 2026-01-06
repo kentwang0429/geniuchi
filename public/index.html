@@ -533,6 +533,9 @@
         overflow: visible !important;
       }
 
+      .winnerLineOverlay {
+        mix-blend-mode: screen;
+      }
 
       /* ✅ 棋盤上方橫圖（置中對齊棋盤中線，寬度跟棋盤一致） */
       .boardStack{
@@ -1236,46 +1239,238 @@
         color: var(--muted);
       }
 
-      /* ===== 賽後保留棋盤 10 秒 Overlay ===== */
-      .postGame {
+      /* ===== 結算畫面 ResultScreen（15秒 + 可提前回房） ===== */
+      .resultScreen{
         position: fixed;
         inset: 0;
-        z-index: 60;
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        padding: 14px;
-        pointer-events: none;
-      }
-      .postGame .box {
-        width: min(720px, 100%);
-        background: rgba(0, 0, 0, 0.55);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        border-radius: 18px;
-        padding: 14px;
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+        z-index: 80;
+
+        /* ✅ 大一點的外邊距，且可滾動（小螢幕不會被裁切） */
+        padding: clamp(14px, 2.2vw, 28px);
+        overflow: auto;
+
+        display:flex;
+        align-items:center;
+        justify-content:center;
+
+        background: rgba(0,0,0,0.55);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
-        pointer-events: auto;
       }
-      .postGame .box .title {
+
+      /* ✅ 總框加寬 + 限制最大高度避免超出視窗 */
+      .resultCard{
+        width: min(1540px, 100%);
+        max-height: calc(var(--vvh) - 2 * clamp(14px, 2.2vw, 28px));
+        border-radius: 22px;
+        border: 1px solid rgba(255,255,255,0.16);
+        box-shadow: 0 28px 80px rgba(0,0,0,0.62);
+        background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(0,0,0,0.35));
+        overflow: hidden;
+
+        display: grid;
+        grid-template-columns: 1fr; /* 小尺寸先上下排 */
+      }
+
+      /* ✅ 中尺寸：仍上下排，但左區置中顯示卡 */
+      @media (min-width: 980px){
+        .resultCard{
+          grid-template-columns: 1fr; /* 先保守：避免板子被擠爆 */
+        }
+      }
+
+      /* ✅ 大尺寸：改成左右兩欄，左邊夠寬放 2 張 420×460 */
+      @media (min-width: 1280px){
+        .resultCard{
+          grid-template-columns: 940px 1fr; /* ✅ 左邊固定寬度給兩張卡（420*2 + gap + padding） */
+        }
+      }
+      /* =========================================================
+        ✅ ResultScreen：手機版改成「棋盤在上、勝利卡在下」
+        條件對齊你 isGameMobile：coarse pointer + <920px
+        ========================================================= */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        /* 用 flex 直接反轉上下順序（不改 DOM） */
+        .resultCard{
+          display: flex !important;
+          flex-direction: column !important;
+        }
+
+        /* ✅ 棋盤區在上 */
+        .resultRight{
+          order: 0;
+          border-bottom: 1px solid rgba(255,255,255,0.10);
+        }
+
+        /* ✅ 卡片區在下 */
+        .resultLeft{
+          order: 1;
+          border-bottom: none !important;
+          border-right: none !important;
+          padding-top: 14px;
+        }
+      }
+
+      .resultLeft{
+        padding: 16px;
+        display:flex;
+        flex-direction:column;
+        gap: 12px;
+
+        /* ✅ 讓卡片區在左欄置中 */
+        align-items: center;
+
+        border-right: none;
+        border-bottom: 1px solid rgba(255,255,255,0.10);
+      }
+
+      @media (min-width: 1280px){
+        .resultLeft{
+          border-bottom: none;
+          border-right: 1px solid rgba(255,255,255,0.10);
+          align-items: center;
+        }
+      }
+
+      .resultTitle{
+        font-size: 18px;
         font-weight: 1000;
-        font-size: 14px;
-        margin-bottom: 6px;
+        letter-spacing: .4px;
+        width: 100%;
       }
-      .postGame .box .sub {
-        color: rgba(255, 255, 255, 0.78);
+      .resultSub{
         font-size: 12px;
-        line-height: 1.4;
-        margin-bottom: 12px;
+        color: rgba(255,255,255,0.72);
+        line-height: 1.5;
+        width: 100%;
       }
-      .postGame .box .btn {
+
+      /* ✅ 卡片容器：維持選角卡比例，但讓寬度可隨螢幕縮放 */
+      .resultCards{
+        display: grid;
+        gap: 14px;
+        width: 100%;
+        justify-content: center;
+
+        /* SINGLE：一張卡置中（手機最大約 86vw，桌機上限 420px） */
+        --rcw: min(420px, 86vw);
+        grid-template-columns: minmax(0, var(--rcw));
+      }
+
+      /* ✅ DUAL：兩張卡左右併排（手機也保持併排，單張約 44vw，上限 420px） */
+      .resultCards.dual{
+        --rcw: min(420px, 44vw);
+        grid-template-columns: repeat(2, minmax(0, var(--rcw)));
+        justify-content: center;
+      }
+
+      /* ✅ 很小螢幕：DUAL 改上下排，避免左右被擠扁 */
+      @media (max-width: 940px){
+        .resultCards.dual{
+          grid-template-columns: minmax(0, 420px);
+        }
+      }
+
+      .resultRoleCard{
+        width: 100%;
+        /* ✅ 420×460 的選角比例 */
+        aspect-ratio: 420 / 460;
+
+        border-radius: 22px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(255,255,255,0.06);
+        overflow: hidden;
+        position: relative;
+        box-shadow: 0 18px 55px rgba(0,0,0,0.45);
+      }
+
+      .resultRoleCard img{
+        width:100%;
+        height:100%;
+        object-fit: cover;
+        display:block;
+        transform: scale(1.02);
+      }
+
+      .resultRight{
+        padding: 12px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+
+        /* ✅ 右側棋盤若太大，至少不會撐爆 */
+        overflow: auto;
+      }
+
+
+
+
+      .resultRoleCard img{
+        width:100%;
+        height:100%;
+        object-fit: cover;
+        display:block;
+        transform: scale(1.02);
+      }
+
+      .resultRight{
+        padding: 12px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+      }
+
+      .resultBottom{
+        margin-top:auto;
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+      }
+
+      .resultBtn{
         width: 100%;
         padding: 14px 12px;
         border-radius: 16px;
-        background: rgba(255, 255, 255, 0.12);
-        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255,255,255,0.14);
+        border: 1px solid rgba(255,255,255,0.18);
       }
+
+      .resultHint{
+        font-size: 12px;
+        color: rgba(255,255,255,0.65);
+      }
+
+
+      /* ===== 勝利連線：整條直線閃電（覆蓋棋盤上層） ===== */
+      .winLineLayer{
+        position:absolute;
+        inset:0;
+        pointer-events:none;
+        z-index: 6; /* 在棋子上方 */
+        mix-blend-mode: screen;
+        filter: drop-shadow(0 0 10px rgba(255,255,255,0.85));
+      }
+
+      .winLineSvg{
+        width:100%;
+        height:100%;
+        display:block;
+        opacity: .92;
+        animation: winLineFlicker 220ms infinite alternate;
+      }
+
+      @keyframes winLineFlicker{
+        from{ opacity: .70; transform: translateY(0); }
+        to  { opacity: 1.00; transform: translateY(-0.5px); }
+      }
+
+      /* 可選：仍保留 winCell class（你若要同時把贏的棋子外框加亮） */
+      .cell.winCell{
+        outline: 2px solid rgba(255,255,255,0.55);
+        outline-offset: -2px;
+      }
+
+
 
       /* =========================================================
          ✅ 手機棋局固定版面：棋盤上方 / 資訊下方 Dock
@@ -2251,6 +2446,151 @@
           )
         );
       }
+      // ================= WinnerLineOverlay =================
+      // Draws a winning line over the board when a winner is detected.
+      // Put this BEFORE App() so it's defined before render.
+
+      function WinnerLineOverlay({
+        board,
+        room,
+        cellSize = 36, // if you have a real cell size, pass it in
+        padding = 0,   // extra offset if your board has inner padding
+      }) {
+        try {
+          // 1) Prefer backend-provided line if exists
+          const line =
+            room?.winnerLine ||
+            room?.winLine ||
+            room?.winner?.line ||
+            room?.result?.line ||
+            null;
+
+          const b = board || room?.board;
+          if (!b || !Array.isArray(b) || !b.length) return null;
+
+          const H = b.length;
+          const W = Array.isArray(b[0]) ? b[0].length : 0;
+          if (!W) return null;
+
+          // helper to normalize "who owns this cell"
+          const ownerOf = (cell) => {
+            if (cell == null) return null;
+            if (cell === 0) return null;
+            if (typeof cell === 'number' || typeof cell === 'string') return cell;
+            if (typeof cell === 'object') {
+              return (
+                cell.ownerToken ??
+                cell.owner ??
+                cell.t ??
+                cell.player ??
+                cell.colorIndex ??
+                cell.p ??
+                null
+              );
+            }
+            return null;
+          };
+
+          // 2) Compute a line if not provided
+          let winCells = null;
+
+          const targetN =
+            room?.targetN ||
+            room?.n ||
+            (room?.mode === 'DUAL' ? 5 : 5) ||
+            5;
+
+          const dirs = [
+            [1, 0],
+            [0, 1],
+            [1, 1],
+            [1, -1],
+          ];
+
+          const inRange = (x, y) => x >= 0 && x < W && y >= 0 && y < H;
+
+          const scan = () => {
+            for (let y = 0; y < H; y++) {
+              for (let x = 0; x < W; x++) {
+                const o = ownerOf(b[y][x]);
+                remember: if (o == null) continue;
+
+                for (const [dx, dy] of dirs) {
+                  // Only start from minimal point to avoid duplicates
+                  const px = x - dx, py = y - dy;
+                  if (inRange(px, py) && ownerOf(b[py][px]) === o) continue;
+
+                  let cells = [[x, y]];
+                  let nx = x + dx, ny = y + dy;
+
+                  while (inRange(nx, ny) && ownerOf(b[ny][nx]) === o) {
+                    cells.push([nx, ny]);
+                    nx += dx;
+                    ny += dy;
+                  }
+
+                  if (cells.length >= targetN) {
+                    // take exactly targetN contiguous cells (first segment)
+                    return cells.slice(0, targetN);
+                  }
+                }
+              }
+            }
+            return null;
+          };
+
+          if (Array.isArray(line) && line.length >= 2) {
+            // line might be [[x,y],[x,y],...] or {cells:[[x,y],...]}
+            winCells = Array.isArray(line[0]) ? line : null;
+          } else if (line?.cells && Array.isArray(line.cells)) {
+            winCells = line.cells;
+          } else {
+            winCells = scan();
+          }
+
+          if (!winCells || winCells.length < 2) return null;
+
+          const [x1, y1] = winCells[0];
+          const [x2, y2] = winCells[winCells.length - 1];
+
+          // Convert cell coord -> pixel center
+          const cx = (x) => padding + x * cellSize + cellSize / 2;
+          const cy = (y) => padding + y * cellSize + cellSize / 2;
+
+          const widthPx = padding * 2 + W * cellSize;
+          const heightPx = padding * 2 + H * cellSize;
+
+          return React.createElement(
+            'svg',
+            {
+              className: 'winnerLineOverlay',
+              width: widthPx,
+              height: heightPx,
+              style: {
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                pointerEvents: 'none',
+                zIndex: 5,
+              },
+            },
+            React.createElement('line', {
+              x1: cx(x1),
+              y1: cy(y1),
+              x2: cx(x2),
+              y2: cy(y2),
+              stroke: 'rgba(255,255,255,0.92)',
+              strokeWidth: 6,
+              strokeLinecap: 'round',
+              filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.45))',
+            })
+          );
+        } catch (e) {
+          // never crash the app because of overlay
+          console.error('[WinnerLineOverlay error]', e);
+          return null;
+        }
+      }
 
       function App() {
         const [socket, setSocket] = React.useState(null);
@@ -2286,6 +2626,16 @@
         // pickingFor: 'self' | 'ai'
         const [pickingFor, setPickingFor] = React.useState('self');
         const [aiPickingTarget, setAiPickingTarget] = React.useState(null); // AI 的 id 或 name（後端 target 用）
+        window.addEventListener('error', (ev) => {
+          try {
+            console.error('[window.error]', ev?.error || ev?.message || ev);
+          } catch (e) {}
+        });
+        window.addEventListener('unhandledrejection', (ev) => {
+          try {
+            console.error('[unhandledrejection]', ev?.reason || ev);
+          } catch (e) {}
+        });
 
         function getPlayerByTarget(r, target) {
           const list = r?.players || [];
@@ -2321,10 +2671,14 @@
         const [fx, setFx] = React.useState(null);
         const fxTimerRef = React.useRef(null);
 
-        // ✅ 賽後保留 10 秒（保留終局棋盤）
-        const [postGame, setPostGame] = React.useState(null); // { winnerName, secondsLeft, finalBoard }
-        const postGameTimerRef = React.useRef(null);
-        const postGameRef = React.useRef(null);
+        // ✅ 結算畫面（15 秒）：凍結終局棋盤 + 閃電標線 + 顯示勝利者角色卡
+        // result: { winnerIndex, winnerName, secondsLeft, finalBoard, winLine, winnerSlots, winnerRoleIdxs }
+        const [result, setResult] = React.useState(null);
+        const resultTimerRef = React.useRef(null);
+        const resultRef = React.useRef(null);
+
+        // ✅ 結算期間收到 roomUpdated（因為我們會立刻 restartGame），先暫存，離開結算再套用
+        const pendingRoomAfterResultRef = React.useRef(null);
 
         const roomRef = React.useRef(null);
 
@@ -2357,8 +2711,8 @@
         const prevMyTurnRef = React.useRef(false);
 
         React.useEffect(() => {
-          postGameRef.current = postGame;
-        }, [postGame]);
+          resultRef.current = result;
+        }, [result]);
 
         const isCoarse = React.useMemo(() => {
           try {
@@ -2417,7 +2771,7 @@
             setAudioBlocked(false);
             // 解鎖後，若 BGM 未靜音，依當前狀態啟動
             if (!bgmMuted) {
-              if (postGameRef.current) am.startVictory();
+              if (resultRef.current) am.startVictory();
               else if (viewRef.current === 'GAME' && roomRef.current?.status === 'PLAYING') am.startBattle();
               else am.startLobby();
             }
@@ -2436,7 +2790,7 @@
           setBgmMuted(next);
           am.setBgmMuted(next);
           if (!next) {
-            if (postGameRef.current) am.startVictory();
+            if (resultRef.current) am.startVictory();
             else if (viewRef.current === 'GAME' && roomRef.current?.status === 'PLAYING') am.startBattle();
             else am.startLobby();
           }
@@ -2485,7 +2839,7 @@
               if (bgmMuted) return;
               const r = roomRef.current;
               const v = viewRef.current;
-              const pg = postGameRef.current;
+              const pg = resultRef.current;
               if (pg) am.startVictory();
               else if (v === 'GAME' && r?.status === 'PLAYING') am.startBattle();
               else am.startLobby();
@@ -2521,45 +2875,54 @@
           });
 
           s.on('roomUpdated', (r) => {
+            // 永遠先更新 ref（避免其他 callback 用到舊 room）
             roomRef.current = r;
+
+            // ✅ 結算期間：只暫存，不動 UI（避免狀態半套導致 render 掛掉）
+            if (resultRef.current) {
+              pendingRoomAfterResultRef.current = r;
+              return;
+            }
+
             setRoom(r);
 
             // 同步自己選到的顏色/角色
             try {
               const me2 = findMePlayer(r, s.id, nameRef.current);
-                if (me2) {
-                  if (typeof me2.colorIndex === 'number') setSelectedColor(me2.colorIndex);
-                  else setSelectedColor(null);
+              if (me2) {
+                if (typeof me2.colorIndex === 'number') setSelectedColor(me2.colorIndex);
+                else setSelectedColor(null);
 
-                  if (r?.mode === 'DUAL') {
-                    setSelectedRole1(typeof me2.roleIndex1 === 'number' ? me2.roleIndex1 : null);
-                    setSelectedRole2(typeof me2.roleIndex2 === 'number' ? me2.roleIndex2 : null);
-                  } else {
-                    setSelectedRole1(typeof me2.roleIndex === 'number' ? me2.roleIndex : null);
-                    setSelectedRole2(null);
-                  }
+                if (r?.mode === 'DUAL') {
+                  setSelectedRole1(typeof me2.roleIndex1 === 'number' ? me2.roleIndex1 : null);
+                  setSelectedRole2(typeof me2.roleIndex2 === 'number' ? me2.roleIndex2 : null);
+                } else {
+                  setSelectedRole1(typeof me2.roleIndex === 'number' ? me2.roleIndex : null);
+                  setSelectedRole2(null);
                 }
+              }
             } catch (e) {}
 
-            // ✅ ROLE 選角中：不切畫面
+            setBoard(r.board || []);
+
             const curView = viewRef.current;
 
-            // ✅ postGame 期間：不覆蓋棋盤、不切 view
-            if (!postGameRef.current) {
-              setBoard(r.board || []);
-
-              if (curView !== 'ROLE') {
-                if (r?.status === 'PLAYING') setView('GAME');
-                else if (r?.status === 'LOBBY') setView('ROOM');
-                else if (r?.status === 'ENDED') setView('GAME');
-              }
+            // ✅ STARTGAME 之後一定要能進 GAME
+            //   就算你剛好還停在 ROLE（例如房主/別人啟動遊戲時你在選角畫面）
+            if (r?.status === 'PLAYING') {
+              setView('GAME');
+            } else if (r?.status === 'LOBBY') {
+              if (curView !== 'ROLE') setView('ROOM');
+            } else if (r?.status === 'ENDED') {
+              setView('GAME');
             }
 
             updateTurnInfo(r);
           });
 
+
           s.on('placed', (payload) => {
-            if (!postGameRef.current && payload.board) setBoard(payload.board);
+            if (!resultRef.current && payload.board) setBoard(payload.board);
 
             if (roomRef.current) {
               roomRef.current = {
@@ -2604,11 +2967,20 @@
 
             if (payload.win) {
               const r = roomRef.current;
-              const winner = r?.players?.[payload.win.winnerIndex];
-              const winnerName = winner ? winner.name : payload.win.winnerId;
+
+              const winnerIndex =
+                typeof payload?.win?.winnerIndex === 'number'
+                  ? payload.win.winnerIndex
+                  : 0;
+
+              const winner = r?.players?.[winnerIndex];
+              const winnerName = winner ? winner.name : (payload?.win?.winnerId || 'Winner');
+
               const finalBoard = deepCopyBoard(payload.board || board);
-              startPostGame(winnerName, finalBoard);
+
+              startResult({ winnerIndex, winnerName, finalBoard, roomSnap: r });
             }
+
 
             // 清 UI 狀態
             setHighlightSources([]);
@@ -2672,7 +3044,7 @@
           if (!am) return;
           if (!am.unlocked || bgmMuted) return;
 
-          if (postGame) {
+          if (result) {
             am.startVictory();
             return;
           }
@@ -2686,15 +3058,16 @@
             am.startLobby();
             return;
           }
-        }, [view, room?.status, postGame, bgmMuted]);
+        }, [view, room?.status, result, bgmMuted]);
 
         React.useEffect(() => {
           return () => {
-            if (postGameTimerRef.current) clearInterval(postGameTimerRef.current);
+            if (resultTimerRef.current) clearInterval(resultTimerRef.current);
             if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
             if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
           };
         }, []);
+
 
         function updateTurnInfo(r) {
           if (!r || !r.players || r.status !== 'PLAYING') {
@@ -2737,44 +3110,159 @@
         }
 
 
-        function startPostGame(winnerName, finalBoard) {
-          if (postGameTimerRef.current) clearInterval(postGameTimerRef.current);
+        function defaultTargetN(roomSnap) {
+          // 你後端若有 room.targetN 就吃它，否則預設 5
+          const n = Number(roomSnap?.targetN || 5);
+          return n >= 3 ? n : 5;
+        }
+        
 
-          setPostGame({ winnerName, secondsLeft: 10, finalBoard });
+        // 掃描某 token 是否有 n 連線，回傳那條線的座標（只取第一條找到的）
+        function findLineForToken(board2d, token, n) {
+          if (!Array.isArray(board2d) || !board2d.length) return null;
+          const H = board2d.length;
+          const W = board2d[0]?.length || 0;
+          if (!W) return null;
+
+          const dirs = [
+            [1, 0],  // →
+            [0, 1],  // ↓
+            [1, 1],  // ↘
+            [-1, 1], // ↙
+          ];
+
+          const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+
+          for (let y = 0; y < H; y++) {
+            for (let x = 0; x < W; x++) {
+              if (board2d[y][x] !== token) continue;
+
+              for (const [dx, dy] of dirs) {
+                // 確保是「線段起點」（前一格不是同 token）
+                const px = x - dx, py = y - dy;
+                if (inb(px, py) && board2d[py][px] === token) continue;
+
+                // 往前數連線
+                let k = 0;
+                const pts = [];
+                while (inb(x + dx * k, y + dy * k) && board2d[y + dy * k][x + dx * k] === token) {
+                  pts.push({ x: x + dx * k, y: y + dy * k });
+                  k++;
+                  if (pts.length >= n) return pts.slice(0, n);
+                }
+              }
+            }
+          }
+          return null;
+        }
+
+        // winnerIndex 可能是 DUAL 任一槽勝利，所以掃兩個槽，找得到哪條線就用哪個槽
+        function computeWinnerLineAndRoles(roomSnap, winnerIndex, finalBoard) {
+          const winner = roomSnap?.players?.[winnerIndex];
+          if (!winner) {
+            return { winLine: null, winnerSlots: [], winnerRoleIdxs: [] };
+          }
+
+          const mode = roomSnap?.mode || 'SINGLE';
+          const baseN = defaultTargetN(roomSnap);
+
+          // 取得 winner 的角色卡（需求：DUAL 顯示兩張）
+          const roleIdxs =
+            mode === 'DUAL'
+              ? [
+                  typeof winner.roleIndex1 === 'number' ? winner.roleIndex1 : null,
+                  typeof winner.roleIndex2 === 'number' ? winner.roleIndex2 : null,
+                ].filter((v) => typeof v === 'number')
+              : [typeof winner.roleIndex === 'number' ? winner.roleIndex : null].filter((v) => typeof v === 'number');
+
+          if (mode !== 'DUAL') {
+            // SINGLE：token = ownerIndex*2 + 1
+            const token = winnerIndex * 2 + 1;
+            const roleIdx = typeof winner.roleIndex === 'number' ? winner.roleIndex : null;
+            const needN = roleIdx === 1 ? 6 : baseN; // 巴特=6
+            const winLine = findLineForToken(finalBoard, token, needN);
+            return { winLine, winnerSlots: [1], winnerRoleIdxs: roleIdxs };
+          }
+
+          // DUAL：掃 slot=1/2，誰先找到線就用誰（同一玩家同一角色勝利）
+          for (let slot = 1; slot <= 2; slot++) {
+            const token = winnerIndex * 2 + slot;
+            const roleIdx = slot === 1 ? winner.roleIndex1 : winner.roleIndex2;
+            const needN = roleIdx === 1 ? 6 : baseN;
+            const winLine = findLineForToken(finalBoard, token, needN);
+            if (winLine) return { winLine, winnerSlots: [slot], winnerRoleIdxs: roleIdxs };
+          }
+
+          return { winLine: null, winnerSlots: [], winnerRoleIdxs: roleIdxs };
+        }
+
+        function startResult({ winnerIndex, winnerName, finalBoard, roomSnap }) {
+          // 清 timer
+          if (resultTimerRef.current) clearInterval(resultTimerRef.current);
+          pendingRoomAfterResultRef.current = null;
+
+          const { winLine, winnerSlots, winnerRoleIdxs } = computeWinnerLineAndRoles(roomSnap, winnerIndex, finalBoard);
+
+          // ✅ 立刻清殘局：把 restartGame 提前到「進結算那刻」就送出
+          //    這樣就不會發生「上一局 timer 到點才 restartGame，卻把下一局清掉」
+          const rid = roomSnap?.id;
+          if (socket && rid) {
+            try {
+              socket.emit('restartGame', { roomId: rid });
+            } catch (e) {}
+          }
+
+          // 顯示結算畫面（15秒）
+          setResult({
+            winnerIndex,
+            winnerName,
+            secondsLeft: 15,
+            finalBoard,
+            winLine: winLine || [],
+            winnerSlots,
+            winnerRoleIdxs,
+          });
 
           if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startVictory();
 
-          let left = 10;
-          postGameTimerRef.current = setInterval(() => {
+          let left = 15;
+          resultTimerRef.current = setInterval(() => {
             left -= 1;
-            setPostGame((pg) => (pg ? { ...pg, secondsLeft: left } : pg));
+            setResult((rg) => (rg ? { ...rg, secondsLeft: left } : rg));
             if (left <= 0) {
-              clearInterval(postGameTimerRef.current);
-              postGameTimerRef.current = null;
-              backToRoom();
+              clearInterval(resultTimerRef.current);
+              resultTimerRef.current = null;
+              exitResult();
             }
           }, 1000);
         }
 
-        // ✅ 回到同房 Lobby
-        function backToRoom() {
+        // ✅ 離開結算：不再送 restartGame（已經在 startResult 送過）
+        function exitResult() {
           audioRef.current?.uiClick();
           audioRef.current?.stopVictory();
           if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startLobby();
 
-          if (postGameTimerRef.current) {
-            clearInterval(postGameTimerRef.current);
-            postGameTimerRef.current = null;
+          if (resultTimerRef.current) {
+            clearInterval(resultTimerRef.current);
+            resultTimerRef.current = null;
           }
-          setPostGame(null);
 
-          const rid = roomRef.current?.id;
-          if (socket && rid) {
-            socket.emit('restartGame', { roomId: rid });
+          setResult(null);
+
+          // ✅ 套用結算期間暫存的新 room（restartGame 後的新 lobby 狀態）
+          const pending = pendingRoomAfterResultRef.current;
+          if (pending) {
+            roomRef.current = pending;
+            setRoom(pending);
+            setBoard(pending.board || []);
+            updateTurnInfo(pending);
+            pendingRoomAfterResultRef.current = null;
           }
 
           setView('ROOM');
         }
+
 
         function onCopyRoomId() {
           audioRef.current?.uiClick();
@@ -3322,7 +3810,7 @@
             }
 
             // postGame 期間不處理
-            if (postGameRef.current) return;
+            if (resultRef.current) return;
 
             // ✅ 1) 後端若回 room：以 room 為準（同步 turn/players/placedThisTurn/turnMeta）
             if (res.room) {
@@ -3700,8 +4188,9 @@
           room.players.length > 0 &&
           room.players.every((p) => p.ready);
 
-        const boardToRender = postGame?.finalBoard ? postGame.finalBoard : board;
+        const boardToRender = result?.finalBoard ? result.finalBoard : board;
         const size = boardToRender?.length || 15;
+
 
         // ✅ 手機：依可用高度計算 cellSize
         const cellSize = React.useMemo(() => {
@@ -4497,23 +4986,99 @@
             }),
 
 
-          // ===== PostGame Overlay =====
-          postGame &&
+          // ✅ 結算畫面（result 存在才顯示）
+          result &&
             e(
               'div',
-              { className: 'postGame' },
+              { className: 'resultScreen' },
               e(
                 'div',
-                { className: 'box' },
-                e('div', { className: 'title' }, `🏆 勝利者：${postGame.winnerName}`),
+                { className: 'resultCard' },
+
+                // left
                 e(
                   'div',
-                  { className: 'sub' },
-                  `棋局將在 ${postGame.secondsLeft} 秒後回到房間並重新選角（可先按下方按鈕）`
+                  { className: 'resultLeft' },
+                  e('div', { className: 'resultTitle' }, `🎉 ${result.winnerName} 勝利！`),
+                  e(
+                    'div',
+                    { className: 'resultSub' },
+                    `倒數 ${result.secondsLeft}s（可提前返回房間）`
+                  ),
+
+                  (() => {
+                    // ✅ winnerRoleIdxs 在 startResult 已經算好（DUAL 會有兩個）
+                    const roleIdxs = Array.isArray(result.winnerRoleIdxs) ? result.winnerRoleIdxs : [];
+                    const isDual = roleIdxs.length >= 2;
+
+                    return e(
+                      'div',
+                      { className: 'resultCards' + (isDual ? ' dual' : '') },
+                      roleIdxs.slice(0, 2).map((ri, k) => {
+                        const r = typeof ri === 'number' ? ROLES[ri] : null;
+                        const src = r?.cardArt || '';
+                        return e(
+                          'div',
+                          { key: k, className: 'resultRoleCard' },
+                          src
+                            ? e('img', {
+                                src,
+                                alt: r?.name || 'role',
+                                draggable: 'false',
+                                onError: (ev) => {
+                                  try { ev.target.style.display = 'none'; } catch (e) {}
+                                },
+                              })
+                            : null
+                        );
+                      })
+                    );
+                  })(),
+
+                  e(
+                    'div',
+                    { className: 'resultBottom' },
+                    e(
+                      'button',
+                      { className: 'resultBtn', onClick: exitResult },
+                      `返回房間（${result.secondsLeft}s）`
+                    ),
+                    e('div', { className: 'resultHint' }, '你也可以等倒數結束自動返回房間')
+                  )
                 ),
-                e('button', { className: 'btn', onClick: backToRoom }, '返回房間')
+
+                // Right: board snapshot
+                e(
+                  'div',
+                  { className: 'resultRight' },
+                  e(
+                    'div',
+                    { style: { pointerEvents: 'none' } },
+                    e(Board, {
+                      board: result.finalBoard,
+                      onPlace: place, // 仍然傳入，但 Board 會 readOnly 不會觸發
+                      room,
+                      highlightSources: [],
+                      highlightTargets: [],
+                      highlightGudo: [],
+                      highlightGudoTargets: [],
+                      highlightGudoSelf: [],
+                      highlightJeiceTargets: [],
+                      highlightJeiceSource: null,
+                      fx: null,
+                      cellSize,
+                      pieceSize,
+                      cursor: null,
+
+                      // ✅ 新增：結算要用
+                      readOnly: true,
+                      winLine: result.winLine || [],
+                    })
+                  )
+                )
               )
             )
+
         );
       }
 
@@ -4866,7 +5431,12 @@
         cellSize,
         pieceSize,
         cursor,
+
+        // ✅ 新增：結算畫面用
+        readOnly,
+        winLine,
       }) {
+
         const size = board.length;
         const cells = [];
 
@@ -4881,12 +5451,16 @@
         const setGudoTargets = React.useMemo(() => makePosSet(highlightGudoTargets), [highlightGudoTargets]);
         const setGudoSelf = React.useMemo(() => makePosSet(highlightGudoSelf), [highlightGudoSelf]);
         const setJeiceTargets = React.useMemo(() => makePosSet(highlightJeiceTargets), [highlightJeiceTargets]);
+        // ✅ 勝利連線（閃電）：把座標轉成 Set，加速判斷
+        const setWin = React.useMemo(() => makePosSet(winLine), [winLine]);
 
         const jeiceSourceKey =
           highlightJeiceSource ? posKey(highlightJeiceSource.x, highlightJeiceSource.y) : null;
 
         // ✅ 事件委派：只用一個 handler（避免 225 個 closure / render 開銷）
         function onGridPointerDown(ev) {
+          if (readOnly) return;
+
           const el = ev?.target?.closest ? ev.target.closest('.cell') : null;
           if (!el) return;
 
@@ -4904,6 +5478,7 @@
 
           onPlace(x, y);
         }
+
 
         for (let y = 0; y < size; y++) {
           for (let x = 0; x < size; x++) {
@@ -4943,14 +5518,19 @@
               inner = e('div', { className: 'grayX', style: { color: darker } });
             }
 
+            const isWin = setWin.has(k);
+            if (isWin) className += ' winCell';
+
             // ✅ 注意：cell 不再掛 onClick / onPointerDown
             cells.push(
               e(
                 'div',
                 { key: `${x},${y}`, className, 'data-x': x, 'data-y': y },
-                inner
+                inner,
+                null
               )
             );
+
           }
         }
 
@@ -4976,17 +5556,23 @@
           'div',
           {
             className: 'board',
-            style: { '--cell': cell + 'px', '--piece': piece + 'px', cursor: cursor || 'pointer' },
+            style: {
+              '--cell': cell + 'px',
+              '--piece': piece + 'px',
+              cursor: readOnly ? 'default' : (cursor || 'pointer'),
+            },
           },
+
           e(
             'div',
             {
               className: 'boardGrid',
               style: { gridTemplateColumns: `repeat(${size}, ${cell}px)` },
-              onPointerDown: onGridPointerDown, // ✅ 改這裡：pointerdown 立即觸發
+              onPointerDown: onGridPointerDown,
             },
             cells
           ),
+
           fx?.type === 'jeice'
             ? e(
                 'div',
@@ -4994,7 +5580,10 @@
                 fx1 ? e('div', { className: 'jeiceOrb', style: fx1 }) : null,
                 fx2 ? e('div', { className: 'jeiceOrb secondary', style: fx2 }) : null
               )
-            : null
+            : null,
+
+          // ✅ 勝利整條閃電線（readOnly 結算畫面才需要也行，你想顯示在任何地方就不加 readOnly 判斷）
+          e(WinnerLineOverlay, { winLine, size, cellSize: cell })
         );
       }
 
