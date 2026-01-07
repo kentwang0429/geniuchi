@@ -5169,7 +5169,7 @@ function createRoom(mode) {
           { className: rootClass },
 
           // ✅ Mobile audio panel overlay
-          audioPanelOpen &&
+          !(view === 'ROLE' || result) && audioPanelOpen &&
             e(
               'div',
               { className: 'audioPanel' + (isGameMobile ? ' game' : '') },
@@ -5189,7 +5189,7 @@ function createRoom(mode) {
                   'div',
                   { className: 'loadingBox' },
                   e('div', { className: 'spinner' }),
-                  e('div', { className: 'loadingTitle' }, loadingPhase === 'ROOM' ? '載入房間中' : '載入棋局中'),
+                  e('div', { className: 'loadingTitle' }, loadingPhase === 'ROOM' ? (inRoom ? '載入角色中' : '載入房間中') : '載入棋局中'),
                   e('div', { className: 'loadingSub' }, '請稍候…')
                 )
               )
@@ -5209,7 +5209,7 @@ function createRoom(mode) {
             : null,
 
           // ===== TopBar（手機對局會被 CSS 隱藏）=====
-          e(
+          !(view === 'ROLE' || result) && e(
             'div',
             { className: 'topBar' },
             e(
