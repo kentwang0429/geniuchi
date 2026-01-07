@@ -1118,6 +1118,37 @@
         /* ✅ 仍然讓滑動手勢在 carousel 上吃到 */
         pointer-events: auto;
       }
+      /* ✅ 手機：讓卡片邊緣更圓滑，避免硬切感 */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .carousel .roleCard{
+          border-radius: 32px;                 /* 原本 22px → 更圓 */
+          overflow: hidden;                    /* 卡面圖一起裁圓角 */
+          clip-path: inset(0 round 32px);      /* ✅ iOS/transform 下圓角更順 */
+          -webkit-clip-path: inset(0 round 32px);
+
+          border: 1px solid rgba(255,255,255,0.10);   /* 邊框不要太硬 */
+          box-shadow: 0 26px 80px rgba(0,0,0,0.55);   /* 保留立體感 */
+        }
+      }
+
+      /* ✅ 手機：卡片邊緣柔化（視覺上不再像被直接裁切） */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .carousel .roleCard::after{
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          pointer-events: none;
+
+          /* 這層會在四周做一圈很淡的暗角/柔化，邊緣就不會硬切 */
+          background:
+            radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,0.08), transparent 55%),
+            radial-gradient(120% 90% at 50% 100%, rgba(0,0,0,0.20), transparent 55%),
+            radial-gradient(circle at 0% 50%, rgba(0,0,0,0.18), transparent 55%),
+            radial-gradient(circle at 100% 50%, rgba(0,0,0,0.18), transparent 55%);
+          opacity: 0.9;
+        }
+      }
 
       /* 更小螢幕：再縮一點 */
       @media (max-width: 420px) {
