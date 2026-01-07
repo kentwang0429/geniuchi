@@ -909,6 +909,16 @@
 
         overflow: hidden;
       }
+      /* ✅ 手機選角：移除左右與下方框框（讓卡片露更多） */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .roleMain {
+          padding-left: 0px !important;
+          padding-right: 0px !important;
+
+          /* ✅ 原本 150px 超大底部預留會把卡片硬縮小 → 直接移除 */
+          padding-bottom: 0px !important;
+        }
+      }
 
 
       /* ✅ 新增：卡片下方資訊區塊（名字+技能說明放這裡） */
@@ -1166,10 +1176,7 @@
         display: none;
       }
 
-      /* 如果你也不想下面那塊 roleInfoBelow 顯示技能文字（只留名字/Stats） */
-      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
-        .roleInfoBelow .desc{ display:none; }
-      }
+    
       /* ✅ 只在手機隱藏：卡片下方資訊欄（吉斯/定位/回合那塊） */
       @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
         .roleInfoBelow { display: none; }
