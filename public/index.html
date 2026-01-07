@@ -543,8 +543,7 @@
       }
 
       .winnerLineOverlay {
-        mix-blend-mode: screen;
-      }
+        }
 
       /* ✅ 棋盤上方橫圖（置中對齊棋盤中線，寬度跟棋盤一致） */
       .boardStack{
@@ -1753,36 +1752,12 @@
       }
 
 
-      /* ===== 勝利連線：整條直線閃電（覆蓋棋盤上層） ===== */
-      .winLineLayer{
-        position:absolute;
-        inset:0;
-        pointer-events:none;
-        z-index: 6; /* 在棋子上方 */
-        mix-blend-mode: screen;
-        filter: drop-shadow(0 0 10px rgba(255,255,255,0.85));
-      }
-
+      /* ===== 勝利連線：細閃電（只覆蓋贏的 5/6 顆棋） ===== */
       .winLineSvg{
         width:100%;
         height:100%;
         display:block;
-        opacity: .92;
-        animation: winLineFlicker 220ms infinite alternate;
       }
-
-      @keyframes winLineFlicker{
-        from{ opacity: .70; transform: translateY(0); }
-        to  { opacity: 1.00; transform: translateY(-0.5px); }
-      }
-
-      /* 可選：仍保留 winCell class（你若要同時把贏的棋子外框加亮） */
-      .cell.winCell{
-        outline: 2px solid rgba(255,255,255,0.55);
-        outline-offset: -2px;
-      }
-
-
 
       /* =========================================================
          ✅ 手機棋局固定版面：棋盤上方 / 資訊下方 Dock
@@ -2807,149 +2782,239 @@
       // Draws a winning line over the board when a winner is detected.
       // Put this BEFORE App() so it's defined before render.
 
+      
+      // ✅ 勝利連線（結算畫面）：細閃電覆蓋在贏的 5/6 顆棋上方（不改格子顏色）
       function WinnerLineOverlay({
-        board,
-        room,
-        cellSize = 36, // if you have a real cell size, pass it in
-        padding = 0,   // extra offset if your board has inner padding
+        winLine,
+        size,
+        cellSize = 36,
+        padding = 0,
       }) {
         try {
-          // 1) Prefer backend-provided line if exists
-          const line =
-            room?.winnerLine ||
-            room?.winLine ||
-            room?.winner?.line ||
-            room?.result?.line ||
-            null;
-
-          const b = board || room?.board;
-          if (!b || !Array.isArray(b) || !b.length) return null;
-
-          const H = b.length;
-          const W = Array.isArray(b[0]) ? b[0].length : 0;
-          if (!W) return null;
-
-          // helper to normalize "who owns this cell"
-          const ownerOf = (cell) => {
-            if (cell == null) return null;
-            if (cell === 0) return null;
-            if (typeof cell === 'number' || typeof cell === 'string') return cell;
-            if (typeof cell === 'object') {
-              return (
-                cell.ownerToken ??
-                cell.owner ??
-                cell.t ??
-                cell.player ??
-                cell.colorIndex ??
-                cell.p ??
-                null
-              );
-            }
-            return null;
-          };
-
-          // 2) Compute a line if not provided
+          // Normalize winCells:
+          // - [[x,y], ...]
+          // - [{x,y}, ...]
+          // - { cells: [[x,y], ...] } or { cells: [{x,y}, ...] }
           let winCells = null;
+          const toXYArray = (p) =>
+            Array.isArray(p) ? [Number(p[0]), Number(p[1])] : [Number(p?.x), Number(p?.y)];
 
-          const targetN =
-            room?.targetN ||
-            room?.n ||
-            (room?.mode === 'DUAL' ? 5 : 5) ||
-            5;
-
-          const dirs = [
-            [1, 0],
-            [0, 1],
-            [1, 1],
-            [1, -1],
-          ];
-
-          const inRange = (x, y) => x >= 0 && x < W && y >= 0 && y < H;
-
-          const scan = () => {
-            for (let y = 0; y < H; y++) {
-              for (let x = 0; x < W; x++) {
-                const o = ownerOf(b[y][x]);
-                remember: if (o == null) continue;
-
-                for (const [dx, dy] of dirs) {
-                  // Only start from minimal point to avoid duplicates
-                  const px = x - dx, py = y - dy;
-                  if (inRange(px, py) && ownerOf(b[py][px]) === o) continue;
-
-                  let cells = [[x, y]];
-                  let nx = x + dx, ny = y + dy;
-
-                  while (inRange(nx, ny) && ownerOf(b[ny][nx]) === o) {
-                    cells.push([nx, ny]);
-                    nx += dx;
-                    ny += dy;
-                  }
-
-                  if (cells.length >= targetN) {
-                    // take exactly targetN contiguous cells (first segment)
-                    return cells.slice(0, targetN);
-                  }
-                }
-              }
-            }
-            return null;
-          };
-
-          if (Array.isArray(line) && line.length >= 2) {
-            // line might be [[x,y],[x,y],...] or {cells:[[x,y],...]}
-            winCells = Array.isArray(line[0]) ? line : null;
-          } else if (line?.cells && Array.isArray(line.cells)) {
-            winCells = line.cells;
-          } else {
-            winCells = scan();
+          if (Array.isArray(winLine)) {
+            winCells = winLine.map(toXYArray);
+          } else if (winLine && Array.isArray(winLine.cells)) {
+            winCells = winLine.cells.map(toXYArray);
+          } else if (winLine && Array.isArray(winLine.line)) {
+            winCells = winLine.line.map(toXYArray);
           }
 
           if (!winCells || winCells.length < 2) return null;
 
-          const [x1, y1] = winCells[0];
-          const [x2, y2] = winCells[winCells.length - 1];
+          const randId = Math.random().toString(36).slice(2, 10);
+          const glowId = `beamGlow_${randId}`;
+          const bloomId = `beamBloom_${randId}`;
+          const gradId = `beamGrad_${randId}`;
+          const gradCoreId = `beamCoreGrad_${randId}`;
 
-          // Convert cell coord -> pixel center
+          const w = size + padding * 2;
+          const h = size + padding * 2;
+
           const cx = (x) => padding + x * cellSize + cellSize / 2;
           const cy = (y) => padding + y * cellSize + cellSize / 2;
 
-          const widthPx = padding * 2 + W * cellSize;
-          const heightPx = padding * 2 + H * cellSize;
+          // Use a straight beam from first to last winning stone center
+          const a0 = winCells[0];
+          const a1 = winCells[winCells.length - 1];
+          const x1 = cx(a0[0]);
+          const y1 = cy(a0[1]);
+          const x2 = cx(a1[0]);
+          const y2 = cy(a1[1]);
+
+          // Beam thickness ~= 1/4 cell (as requested previously)
+          const beamW = Math.max(10, cellSize * 0.25);
+
+          // Extra length so caps look nicer
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const L = Math.max(1, Math.hypot(dx, dy));
+          const ux = dx / L;
+          const uy = dy / L;
+
+          const extend = beamW * 0.45;
+          const sx1 = x1 - ux * extend;
+          const sy1 = y1 - uy * extend;
+          const sx2 = x2 + ux * extend;
+          const sy2 = y2 + uy * extend;
 
           return React.createElement(
-            'svg',
+            'div',
             {
               className: 'winnerLineOverlay',
-              width: widthPx,
-              height: heightPx,
               style: {
                 position: 'absolute',
-                left: 0,
-                top: 0,
+                left: -padding,
+                top: -padding,
+                width: w,
+                height: h,
                 pointerEvents: 'none',
-                zIndex: 5,
+                zIndex: 60, // must be above pieces + board ::after
               },
             },
-            React.createElement('line', {
-              x1: cx(x1),
-              y1: cy(y1),
-              x2: cx(x2),
-              y2: cy(y2),
-              stroke: 'rgba(255,255,255,0.92)',
-              strokeWidth: 6,
-              strokeLinecap: 'round',
-              filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.45))',
-            })
+            React.createElement(
+              'svg',
+              {
+                className: 'winLineSvg',
+                width: w,
+                height: h,
+                viewBox: `0 0 ${w} ${h}`,
+                style: { overflow: 'visible' },
+              },
+              React.createElement(
+                'defs',
+                null,
+                // Blue Kamehameha-like beam gradient (along length)
+                React.createElement(
+                  'linearGradient',
+                  { id: gradId, x1: sx1, y1: sy1, x2: sx2, y2: sy2, gradientUnits: 'userSpaceOnUse' },
+                  React.createElement('stop', { offset: '0%', stopColor: 'rgba(90, 215, 255, 0.10)' }),
+                  React.createElement('stop', { offset: '12%', stopColor: 'rgba(120, 235, 255, 0.85)' }),
+                  React.createElement('stop', { offset: '50%', stopColor: 'rgba(230, 255, 255, 0.98)' }),
+                  React.createElement('stop', { offset: '88%', stopColor: 'rgba(120, 235, 255, 0.85)' }),
+                  React.createElement('stop', { offset: '100%', stopColor: 'rgba(90, 215, 255, 0.10)' })
+                ),
+                // Core gradient (mostly white with a hint of blue)
+                React.createElement(
+                  'linearGradient',
+                  { id: gradCoreId, x1: sx1, y1: sy1, x2: sx2, y2: sy2, gradientUnits: 'userSpaceOnUse' },
+                  React.createElement('stop', { offset: '0%', stopColor: 'rgba(255, 255, 255, 0.15)' }),
+                  React.createElement('stop', { offset: '18%', stopColor: 'rgba(255, 255, 255, 0.95)' }),
+                  React.createElement('stop', { offset: '50%', stopColor: 'rgba(255, 255, 255, 1.0)' }),
+                  React.createElement('stop', { offset: '82%', stopColor: 'rgba(255, 255, 255, 0.95)' }),
+                  React.createElement('stop', { offset: '100%', stopColor: 'rgba(255, 255, 255, 0.15)' })
+                ),
+                // Soft glow around the beam
+                React.createElement(
+                  'filter',
+                  { id: glowId, x: '-40%', y: '-40%', width: '180%', height: '180%' },
+                  React.createElement('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: Math.max(2, beamW * 0.18), result: 'blur' }),
+                  React.createElement(
+                    'feColorMatrix',
+                    {
+                      in: 'blur',
+                      type: 'matrix',
+                      values:
+                        '1 0 0 0 0 ' +
+                        '0 1 0 0 0 ' +
+                        '0 0 1 0 0 ' +
+                        '0 0 0 0.9 0',
+                      result: 'glow',
+                    }
+                  ),
+                  React.createElement('feMerge', null,
+                    React.createElement('feMergeNode', { in: 'glow' }),
+                    React.createElement('feMergeNode', { in: 'SourceGraphic' })
+                  )
+                ),
+                // Larger bloom (outer aura)
+                React.createElement(
+                  'filter',
+                  { id: bloomId, x: '-60%', y: '-60%', width: '220%', height: '220%' },
+                  React.createElement('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: Math.max(3, beamW * 0.38), result: 'b' }),
+                  React.createElement(
+                    'feColorMatrix',
+                    {
+                      in: 'b',
+                      type: 'matrix',
+                      values:
+                        '1 0 0 0 0 ' +
+                        '0 1 0 0 0 ' +
+                        '0 0 1 0 0 ' +
+                        '0 0 0 0.65 0',
+                      result: 'bb',
+                    }
+                  ),
+                  React.createElement('feMerge', null,
+                    React.createElement('feMergeNode', { in: 'bb' }),
+                    React.createElement('feMergeNode', { in: 'SourceGraphic' })
+                  )
+                )
+              ),
+
+              // Outer aura
+              React.createElement('line', {
+                x1: sx1,
+                y1: sy1,
+                x2: sx2,
+                y2: sy2,
+                stroke: `url(#${gradId})`,
+                strokeWidth: beamW * 2.3,
+                strokeLinecap: 'round',
+                opacity: 0.32,
+                filter: `url(#${bloomId})`,
+              }),
+
+              // Mid glow beam
+              React.createElement('line', {
+                x1: sx1,
+                y1: sy1,
+                x2: sx2,
+                y2: sy2,
+                stroke: 'rgba(90, 215, 255, 0.95)',
+                strokeWidth: beamW * 1.25,
+                strokeLinecap: 'round',
+                opacity: 0.60,
+                filter: `url(#${glowId})`,
+              }),
+
+              // Main beam body (gradient)
+              React.createElement('line', {
+                x1: sx1,
+                y1: sy1,
+                x2: sx2,
+                y2: sy2,
+                stroke: `url(#${gradId})`,
+                strokeWidth: beamW,
+                strokeLinecap: 'round',
+                opacity: 0.95,
+              }),
+
+              // White core
+              React.createElement('line', {
+                x1: sx1,
+                y1: sy1,
+                x2: sx2,
+                y2: sy2,
+                stroke: `url(#${gradCoreId})`,
+                strokeWidth: Math.max(3, beamW * 0.38),
+                strokeLinecap: 'round',
+                opacity: 0.95,
+              }),
+
+              // End caps (small flares)
+              React.createElement('circle', {
+                cx: sx1,
+                cy: sy1,
+                r: beamW * 0.72,
+                fill: 'rgba(170, 245, 255, 0.55)',
+                filter: `url(#${bloomId})`,
+                opacity: 0.55,
+              }),
+              React.createElement('circle', {
+                cx: sx2,
+                cy: sy2,
+                r: beamW * 0.72,
+                fill: 'rgba(170, 245, 255, 0.55)',
+                filter: `url(#${bloomId})`,
+                opacity: 0.55,
+              })
+            )
           );
         } catch (e) {
-          // never crash the app because of overlay
           console.error('[WinnerLineOverlay error]', e);
           return null;
         }
       }
 
-      function App() {
+function App() {
         const [socket, setSocket] = React.useState(null);
         const OPTIMISTIC_PLACE = true; // ✅ 想關就改 false
         const optimisticRef = React.useRef(null);
@@ -5926,8 +5991,6 @@
         const setGudoSelf = React.useMemo(() => makePosSet(highlightGudoSelf), [highlightGudoSelf]);
         const setJeiceTargets = React.useMemo(() => makePosSet(highlightJeiceTargets), [highlightJeiceTargets]);
         // ✅ 勝利連線（閃電）：把座標轉成 Set，加速判斷
-        const setWin = React.useMemo(() => makePosSet(winLine), [winLine]);
-
         const jeiceSourceKey =
           highlightJeiceSource ? posKey(highlightJeiceSource.x, highlightJeiceSource.y) : null;
 
@@ -5991,10 +6054,6 @@
               const darker = darkenHex(baseColor, 0.6);
               inner = e('div', { className: 'grayX', style: { color: darker } });
             }
-
-            const isWin = setWin.has(k);
-            if (isWin) className += ' winCell';
-
             // ✅ 注意：cell 不再掛 onClick / onPointerDown
             cells.push(
               e(
@@ -6055,9 +6114,8 @@
                 fx2 ? e('div', { className: 'jeiceOrb secondary', style: fx2 }) : null
               )
             : null,
-
-          // ✅ 勝利整條閃電線（readOnly 結算畫面才需要也行，你想顯示在任何地方就不加 readOnly 判斷）
-          e(WinnerLineOverlay, { winLine, size, cellSize: cell })
+          // ✅ 勝利連線：只在結算畫面覆蓋（不改格子顏色）
+          readOnly ? e(WinnerLineOverlay, { winLine, size, cellSize: cell }) : null
         );
       }
 
