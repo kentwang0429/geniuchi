@@ -958,70 +958,36 @@
       }
 
 
-      /* ✅ 底部 Dock：更「一體」＋鍵盤彈出也不擋按鈕 */
+      /* ✅ 選角底部：確認按鈕固定在底部置中（離底 10px） */
       .roleBottom {
         position: fixed;
-        left: 12px;
-        right: 12px;
-        bottom: calc(12px + var(--vv-bottom));
-        z-index: 70;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: calc(10px + var(--vv-bottom) + env(safe-area-inset-bottom));
+        z-index: 999; /* 保險：一定在最上層 */
 
-        display: flex;
-        gap: 10px;
-        align-items: center;
-
-        /* ✅ NEW：只留一顆按鈕，置中 */
-        justify-content: center;
-
-        padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
-        border-radius: 22px;
-
-        background: linear-gradient(
-          180deg,
-          rgba(0, 0, 0, 0.22),
-          rgba(0, 0, 0, 0.35)
-        );
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.62);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-      }
-
-      .roleBottom::before {
-        content: '';
-        position: absolute;
-        left: 10px;
-        right: 10px;
-        top: -18px;
-        height: 22px;
-        border-radius: 20px 20px 0 0;
-        background: linear-gradient(
-          180deg,
-          rgba(0, 0, 0, 0),
-          rgba(0, 0, 0, 0.25)
-        );
-        pointer-events: none;
-      }
-
-      .confirm {
-        /* ✅ NEW：不要撐滿，改成置中按鈕 */
-        flex: 0 0 auto;
+        /* ✅ 容器本身就等於按鈕寬度 */
         width: min(420px, 86vw);
 
-        padding: 14px 16px;
-        border-radius: 16px;
+        /* ✅ 不要再有 Dock 外框/背景，避免看起來像一塊大底座 */
+        padding: 0;
+        background: none;
+        border: none;
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
 
-        /* ✅ NEW：透明感 */
-        background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.22);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-
-        box-shadow: 0 18px 55px rgba(0,0,0,0.45);
-
-        color: rgba(255,255,255,0.92);
-        font-weight: 1000;
+        display: flex;
+        justify-content: center;
       }
+
+
+
+      .confirm{
+        width: 100%;
+        margin: 0;
+      }
+
       .confirm:disabled{
         opacity: 0.45;
         cursor: not-allowed;
