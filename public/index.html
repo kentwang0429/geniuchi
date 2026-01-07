@@ -1082,7 +1082,7 @@
         /* ✅ 這裡是重點：卡縮小約一半
           - 一般手機：0.55
           - 很小手機：0.50 */
-        --cardScale: 0.55;
+        --cardScale: 1;
 
         transform:
           translate3d(var(--dragx, 0px), 0, 0)
@@ -1101,9 +1101,95 @@
       /* 更小螢幕：再縮一點 */
       @media (max-width: 420px) {
         .roleCard {
-          --cardScale: 0.50;
+          --cardScale: 1;
           padding: 12px;
         }
+      }
+      /* =========================
+        ✅ 選角卡：左下角技能按鈕/說明面板（Mobile）
+        ========================= */
+
+      /* 手機 carousel 裡，不要再顯示原本大段 roleDesc（避免重複） */
+      .carousel .roleCard .roleDesc{
+        display: none;
+      }
+
+      /* 如果你也不想下面那塊 roleInfoBelow 顯示技能文字（只留名字/Stats） */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .roleInfoBelow .desc{ display:none; }
+      }
+
+      /* 左下角技能按鈕 */
+      .cardSkillBtn{
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        z-index: 6;
+
+        padding: 7px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 1000;
+
+        background: rgba(0,0,0,0.40);
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 14px 34px rgba(0,0,0,0.35);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+
+        /* ✅ roleCard 本體 pointer-events: none，所以按鈕要能點 */
+        pointer-events: auto;
+      }
+
+      /* 左下角技能面板（預設收起） */
+      .cardSkillPop{
+        position: absolute;
+        left: 12px;
+        bottom: 54px;
+        z-index: 6;
+
+        width: min(260px, 72%);
+        max-height: min(44%, 240px);
+        overflow: auto;
+
+        padding: 10px 10px;
+        border-radius: 16px;
+        background: rgba(0,0,0,0.58);
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 18px 55px rgba(0,0,0,0.50);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+
+        opacity: 0;
+        transform: translateY(6px) scale(0.98);
+        transition: opacity 140ms ease, transform 140ms ease;
+        pointer-events: none; /* 收起狀態不可點 */
+      }
+
+      .cardSkillPop.open{
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto; /* 展開狀態可滑可點 */
+      }
+
+      .cardSkillTitle{
+        font-size: 12px;
+        font-weight: 1000;
+        color: rgba(255,255,255,0.92);
+        margin-bottom: 6px;
+      }
+
+      .cardSkillText{
+        font-size: 12px;
+        line-height: 1.35;
+        color: rgba(255,255,255,0.78);
+        white-space: pre-wrap;
+      }
+
+      /* 正在拖曳時，避免你手指滑到面板造成卡頓：拖曳期間面板先不吃事件 */
+      .carousel.dragging .cardSkillBtn,
+      .carousel.dragging .cardSkillPop{
+        pointer-events: none !important;
       }
 
 
@@ -2721,10 +2807,18 @@
         const [selectedRole2, setSelectedRole2] = React.useState(null);
         const [pickingSlot, setPickingSlot] = React.useState(1);
         // ===== ROLE 單卡跟手 =====
-        const [roleCursor, setRoleCursor] = React.useState(0); // 你若已經有目前顯示哪張卡的 state，就用你的，不要重複
+        const [roleCursor, setRoleCursor] = React.useState(0);
         const [dragPx, setDragPx] = React.useState(0);
         const [dragging, setDragging] = React.useState(false);
         const dragStartXRef = React.useRef(0);
+
+        /* ✅ NEW：手機選角卡左下角技能說明開關 */
+        const [roleSkillOpen, setRoleSkillOpen] = React.useState(false);
+
+        /* ✅ 換卡時自動收起（避免切到下一張還開著） */
+        React.useEffect(() => {
+          setRoleSkillOpen(false);
+        }, [roleCursor]);
 
         // ✅ NEW：房主幫 AI 選角也走全螢幕 ROLE 介面
         // pickingFor: 'self' | 'ai'
@@ -5341,6 +5435,14 @@
         const dragProgress = clamp(-dragPx / snapPx, -1, 1);
         const blocked = room?.mode === 'DUAL' && typeof blockedRoleIndex === 'number' ? blockedRoleIndex : null;
 
+        // ✅ NEW：左下角技能面板開關（手機卡片用）
+        const [skillOpen, setSkillOpen] = React.useState(false);
+
+        // ✅ 換卡就收起（避免切到下一張還開著）
+        React.useEffect(() => {
+          setSkillOpen(false);
+        }, [current]);
+
         // ✅ 單卡跟手：位移/旋轉（限制最大值避免拖太遠）
         const followX = clamp(dragPx * 0.35, -90, 90);
         const followDeg = clamp(dragPx * 0.03, -8, 8);
@@ -5401,20 +5503,18 @@
                   const r = ROLES[current];
                   if (!r) return null;
 
-                  // ✅ 單張卡：用 dragPx 轉成「微位移 + 微旋轉」
                   const style = {
                     transform: `translate3d(${followX}px, 0, 0) rotate(${followDeg}deg) scale(1)`,
                     opacity: 1,
                     filter: 'none',
                     zIndex: 1000,
 
-                    // ✅ 拖曳時取消 transition（更跟手）；放手後回彈
                     transition: dragRef.current.down
                       ? 'none'
                       : 'transform 160ms cubic-bezier(.2,.9,.2,1)',
 
-                    // ✅ 讓手勢主要由 carousel 吃（不怕卡片內容擋）
-                    pointerEvents: 'none',
+                    // ❌ 不能是 none，不然按鈕永遠點不到
+                    // pointerEvents: 'none',
 
                     boxShadow: '0 34px 90px rgba(0,0,0,0.62)',
                     borderColor: 'rgba(255,255,255,0.28)',
@@ -5424,12 +5524,59 @@
                   return e(
                     'div',
                     {
-                      key: current, // ✅ key 用 current，切換時才會換卡
+                      key: current,
                       className: 'roleCard',
                       style,
                     },
 
                     CardArtLayer(r),
+
+                    // ✅ NEW：左下角「技能」按鈕
+                    e(
+                      'button',
+                      {
+                        className: 'cardSkillBtn',
+                        onPointerDown: (ev) => {
+                          // 不要啟動 swipe
+                          ev.stopPropagation();
+                          try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) {}
+                        },
+                        onPointerMove: (ev) => { ev.stopPropagation(); },
+                        onPointerUp: (ev) => {
+                          ev.stopPropagation();
+                          try { ev.currentTarget.releasePointerCapture(ev.pointerId); } catch (e) {}
+                        },
+                        onClick: (ev) => {
+                          ev.stopPropagation();
+                          ev.preventDefault();
+                          audio?.uiClick?.();
+                          setSkillOpen((v) => !v);
+                        },
+                        title: '顯示/收起技能',
+                      },
+                      skillOpen ? '收起' : '技能'
+                    ),
+
+                    // ✅ NEW：左下角技能面板（縮小顯示）
+                    e(
+                      'div',
+                      {
+                        className: 'cardSkillPop' + (skillOpen ? ' open' : ''),
+                        onPointerDown: (ev) => {
+                          // 允許在面板內滑動，不要觸發 swipe
+                          ev.stopPropagation();
+                          try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) {}
+                        },
+                        onPointerMove: (ev) => { ev.stopPropagation(); },
+                        onPointerUp: (ev) => {
+                          ev.stopPropagation();
+                          try { ev.currentTarget.releasePointerCapture(ev.pointerId); } catch (e) {}
+                        },
+                        onClick: (ev) => { ev.stopPropagation(); },
+                      },
+                      e('div', { className: 'cardSkillTitle' }, '技能說明'),
+                      e('div', { className: 'cardSkillText' }, r?.desc || '')
+                    ),
 
                     // ✅ 卡片內：只保留右上棋子 icon
                     e(
@@ -5438,6 +5585,7 @@
                       e('div', { className: 'roleIcon' }, e('div', { className: r.shape, style: { color: '#fff' } }))
                     )
                   );
+
                 })()
               )
             ),
