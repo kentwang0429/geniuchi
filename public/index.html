@@ -2129,7 +2129,61 @@
       }
 
 
-    </style>
+    
+      /* ================= Loading Curtain (preload UI / audio) ================= */
+      .topBar {
+        position: sticky;
+        top: 0;
+        z-index: 95; /* above loading curtain */
+      }
+      .audioPanel {
+        z-index: 90;
+      }
+      .loadingCurtain {
+        position: fixed;
+        inset: 0;
+        z-index: 85; /* above result/game, below topBar/audioPanel */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+      .loadingBox {
+        width: min(520px, 88vw);
+        padding: 18px 18px 16px;
+        border-radius: 18px;
+        background: rgba(15, 20, 35, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 18px 70px rgba(0, 0, 0, 0.55);
+        text-align: center;
+      }
+      .loadingTitle {
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        margin-top: 10px;
+      }
+      .loadingSub {
+        margin-top: 8px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.66);
+      }
+      .spinner {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.22);
+        border-top-color: rgba(255, 255, 255, 0.85);
+        margin: 0 auto;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+</style>
   </head>
   <body>
     <div id="app"></div>
@@ -2432,15 +2486,43 @@
           this.battleLoop = null;
           this.voice = null;
 
+          this._voiceTimer = null;
+          this._pendingVoice = null;
+
+          // ✅ 防止手機進站/重進時 BGM 疊加：停掉殘留的 loop/bgm audio
+          try {
+            const pool = (window.__GENIUCHI_AUDIO_POOL = window.__GENIUCHI_AUDIO_POOL || []);
+            pool.forEach((a) => {
+              if (!a) return;
+              const k = a.__g_kind;
+              if (k === 'bgm' || a.loop) {
+                try {
+                  a.pause();
+                  a.currentTime = 0;
+                } catch (e) {}
+              }
+            });
+          } catch (e) {}
+
           this.vol = { bgm: 0.35, sfx: 0.8, voice: 0.95 };
           this._lastVoiceAt = 0;
         }
 
-        _makeAudio(src, { loop = false, volume = 1 } = {}) {
-          const a = new Audio(src);
+        _makeAudio(src, { loop = false, volume = 1 } = {}, kind = 'sfx') {
+          if (!src) return null;
+          const s = String(src);
+          const url = /^https?:\/\//.test(s) ? s : s.startsWith('/') ? s : `/${s}`;
+          const a = new Audio(url);
           a.preload = 'auto';
           a.loop = !!loop;
           a.volume = clamp(volume, 0, 1);
+          try {
+            a.__g_kind = kind;
+          } catch (e) {}
+          try {
+            const pool = (window.__GENIUCHI_AUDIO_POOL = window.__GENIUCHI_AUDIO_POOL || []);
+            pool.push(a);
+          } catch (e) {}
           return a;
         }
 
@@ -2522,6 +2604,22 @@
               this.battleLoop.currentTime = 0;
             }
           } catch (e) {}
+
+          // ✅ 也停掉舊版本/重複初始化殘留的 BGM（避免手機疊音）
+          try {
+            const pool = window.__GENIUCHI_AUDIO_POOL || [];
+            pool.forEach((a) => {
+              if (!a) return;
+              const k = a.__g_kind;
+              if (k === 'bgm' || a.loop) {
+                try {
+                  a.pause();
+                  a.currentTime = 0;
+                } catch (e) {}
+              }
+            });
+          } catch (e) {}
+
           this.bgm = null;
           this.battleLoop = null;
           this.bgmKind = null;
@@ -2570,13 +2668,12 @@
 
           this.stopAllBgm();
 
-          const a = this._makeAudio(AUDIO_ASSETS.bgm_lobby, { loop: true, volume: this.vol.bgm });
+          const a = this._makeAudio(AUDIO_ASSETS.bgm_lobby, { loop: true, volume: this.vol.bgm }, 'bgm');
 
           this.bgmKind = 'lobby';
           this.bgm = a;
 
-          const ok = await this._safePlay(a);
-          if (!ok) this.bgmKind = null;
+          await this._safePlay(a);
         }
 
         async startBattle() {
@@ -2595,15 +2692,14 @@
           const loopSrc = AUDIO_ASSETS.bgm_battle_loop;
 
           if (!introSrc) {
-            const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm });
+            const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm }, 'bgm');
             this.bgm = loop;
-            const ok = await this._safePlay(loop);
-            if (!ok) this.bgmKind = null;
+            await this._safePlay(loop);
             return;
           }
 
-          const intro = this._makeAudio(introSrc, { loop: false, volume: 0.6 });
-          const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm });
+          const intro = this._makeAudio(introSrc, { loop: false, volume: 0.6 }, 'bgm');
+          const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm }, 'bgm');
 
           this.bgm = intro;
           this.battleLoop = loop;
@@ -2614,8 +2710,7 @@
             await this._safePlay(loop);
           });
 
-          const ok = await this._safePlay(intro);
-          if (!ok) this.bgmKind = null;
+          await this._safePlay(intro);
         }
 
         async startVictory() {
@@ -2639,8 +2734,7 @@
             volume: this.vol.bgm,
           });
 
-          const ok = await this._safePlay(this.bgm);
-          if (!ok) this.bgmKind = null;
+          await this._safePlay(this.bgm);
         }
 
 
@@ -2657,7 +2751,7 @@
           if (this.sfxMuted) return;
           if (!src) return;
           try {
-            const a = this._makeAudio(src, { loop: false, volume });
+            const a = this._makeAudio(src, { loop: false, volume }, 'sfx');
             a.play().catch((err) => this._maybeNeedGesture(err));
           } catch (e) {}
         }
@@ -3033,6 +3127,188 @@ function App() {
           viewRef.current = view;
         }, [view]);
 
+        // ✅ Loading overlay + asset preloading (fix first-open UI/audio lag)
+        // loadingPhase: null | 'ROOM' | 'GAME'
+        const [loadingPhase, setLoadingPhase] = React.useState(null);
+        const loadingPhaseRef = React.useRef(null);
+        React.useEffect(() => {
+          loadingPhaseRef.current = loadingPhase;
+        }, [loadingPhase]);
+
+        const preloadCacheRef = React.useRef({
+          roomPromise: null,
+          gamePromise: null,
+          roomDone: false,
+          gameDone: false,
+        });
+
+        const IMAGE_ASSETS = React.useMemo(
+          () => [
+            '/img/stone_2040_nogrid.png',
+            '/img/grass.png',
+            '/img/building003.png',
+            '/img/cards/ginyu.png',
+            '/img/cards/burter.png',
+            '/img/cards/recoome.png',
+            '/img/cards/logan.png',
+            '/img/cards/guldo.png',
+            '/img/cards/jeice.png',
+          ],
+          []
+        );
+
+        const ALL_AUDIO_URLS = React.useMemo(() => {
+          const urls = [];
+          try {
+            // strings
+            if (AUDIO_ASSETS?.bgm_lobby) urls.push(AUDIO_ASSETS.bgm_lobby);
+            if (AUDIO_ASSETS?.bgm_battle_intro) urls.push(AUDIO_ASSETS.bgm_battle_intro);
+            if (AUDIO_ASSETS?.bgm_battle_loop) urls.push(AUDIO_ASSETS.bgm_battle_loop);
+            if (AUDIO_ASSETS?.bgm_victory) urls.push(AUDIO_ASSETS.bgm_victory);
+            if (AUDIO_ASSETS?.sfx_victory) urls.push(AUDIO_ASSETS.sfx_victory);
+            if (AUDIO_ASSETS?.sfx_ui_click) urls.push(AUDIO_ASSETS.sfx_ui_click);
+
+            // nested
+            const v = AUDIO_ASSETS?.voice_role || {};
+            Object.keys(v).forEach((k) => urls.push(v[k]));
+            const m = AUDIO_ASSETS?.sfx_map || {};
+            Object.keys(m).forEach((k) => urls.push(m[k]));
+          } catch (e) {}
+
+          // uniq + keep truthy
+          return Array.from(new Set(urls.filter(Boolean)));
+        }, []);
+
+        function preloadImages(urls) {
+          const uniq = Array.from(new Set((urls || []).filter(Boolean)));
+          if (!uniq.length) return Promise.resolve();
+
+          // ✅ also hint browser to fetch early (helps mobile decode jank)
+          try {
+            const s = (window.__GENIUCHI_PRELOAD_LINKS = window.__GENIUCHI_PRELOAD_LINKS || new Set());
+            uniq.forEach((u) => {
+              if (!u || s.has(u)) return;
+              const link = document.createElement('link');
+              link.rel = 'preload';
+              link.as = 'image';
+              link.href = u;
+              document.head.appendChild(link);
+              s.add(u);
+            });
+          } catch (e) {}
+
+          return Promise.all(
+            uniq.map(
+              (u) =>
+                new Promise((resolve) => {
+                  try {
+                    const img = new Image();
+                    img.decoding = 'async';
+                    img.loading = 'eager';
+                    img.onload = async () => {
+                      try {
+                        if (img.decode) await img.decode();
+                      } catch (e) {}
+                      resolve(true);
+                    };
+                    img.onerror = () => resolve(false);
+                    img.src = u;
+
+                    // if already cached
+                    if (img.complete && img.naturalWidth > 0) {
+                      (async () => {
+                        try {
+                          if (img.decode) await img.decode();
+                        } catch (e) {}
+                        resolve(true);
+                      })();
+                    }
+                  } catch (e) {
+                    resolve(false);
+                  }
+                })
+            )
+          );
+        }
+function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
+          const uniq = Array.from(new Set((urls || []).filter(Boolean)));
+          if (!uniq.length) return Promise.resolve();
+          return Promise.all(
+            uniq.map(
+              (u) =>
+                new Promise((resolve) => {
+                  let done = false;
+                  const finish = (ok) => {
+                    if (done) return;
+                    done = true;
+                    resolve(!!ok);
+                  };
+                  try {
+                    const a = new Audio();
+                    a.preload = 'auto';
+                    a.src = u;
+                    a.addEventListener('canplaythrough', () => finish(true), { once: true });
+                    a.addEventListener('loadeddata', () => finish(true), { once: true });
+                    a.addEventListener('error', () => finish(false), { once: true });
+                    a.load();
+                    setTimeout(() => finish(false), timeoutMs);
+                  } catch (e) {
+                    finish(false);
+                  }
+                })
+            )
+          );
+        }
+
+        // ✅ Phase 1: room/lobby assets (role cards + key SFX/voices + lobby BGM)
+        function preloadRoomAssetsOnce() {
+          if (preloadCacheRef.current.roomPromise) return preloadCacheRef.current.roomPromise;
+          preloadCacheRef.current.roomPromise = (async () => {
+            try {
+              // images
+              await preloadImages(IMAGE_ASSETS);
+              // only important audios for role selection
+              const roomAudios = [
+                AUDIO_ASSETS?.sfx_ui_click,
+                AUDIO_ASSETS?.bgm_lobby,
+                ...(AUDIO_ASSETS?.voice_role ? Object.values(AUDIO_ASSETS.voice_role) : []),
+              ].filter(Boolean);
+              await preloadAudios(roomAudios, { timeoutMs: 1800 });
+            } catch (e) {}
+            preloadCacheRef.current.roomDone = true;
+            return true;
+          })();
+          return preloadCacheRef.current.roomPromise;
+        }
+
+        // ✅ Phase 2: game assets (all SFX + battle/victory bgm)
+        function preloadGameAssetsOnce() {
+          if (preloadCacheRef.current.gamePromise) return preloadCacheRef.current.gamePromise;
+          preloadCacheRef.current.gamePromise = (async () => {
+            try {
+              await preloadImages(IMAGE_ASSETS);
+              await preloadAudios(ALL_AUDIO_URLS, { timeoutMs: 2200 });
+            } catch (e) {}
+            preloadCacheRef.current.gameDone = true;
+            return true;
+          })();
+          return preloadCacheRef.current.gamePromise;
+        }
+
+        async function ensureGameReady() {
+          try {
+            // show curtain if we're not already fully loaded
+            setLoadingPhase('GAME');
+            await preloadGameAssetsOnce();
+            // let browser paint once or twice (avoid first-frame jank)
+            await new Promise((r) => requestAnimationFrame(r));
+            await new Promise((r) => requestAnimationFrame(r));
+          } catch (e) {} finally {
+            // only close if still in GAME phase
+            setLoadingPhase((prev) => (prev === 'GAME' ? null : prev));
+          }
+        }
+
         const [room, setRoom] = React.useState(null);
         const [board, setBoard] = React.useState([]);
         const [name, setName] = React.useState('');
@@ -3165,15 +3441,6 @@ function App() {
         }, [vp.w, vp.h]);
 
         const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
-        // ✅ Mobile：滑動換角色時也要播該角色語音（避免只有桌機 hover 才會播）
-        React.useEffect(() => {
-          try {
-            if (view !== 'ROLE') return;
-            if (!(isCoarse || vp.w < 920)) return; // 只限手機/窄螢幕
-            audioRef.current?.playRoleVoice?.(roleCursor);
-          } catch (e) {}
-        }, [view, roleCursor, isCoarse, vp.w]);
-
 
         // ✅ 加在 App() 裡、helpOpen state 附近（任何地方都行，但要在 useEffect 前）
         const helpOpenRef = React.useRef(false);
@@ -3297,12 +3564,12 @@ function App() {
         }
 
         function bgmLabel() {
-          if (!audioUnlocked) return audioBlocked ? '🎵BGM（點一下解鎖）' : '🎵BGM';
-          return bgmMuted ? '🎵BGM：關' : '🎵BGM：開';
+          if (!audioUnlocked) return audioBlocked ? '🎵背景音樂（點一下解鎖）' : '🎵背景音樂';
+          return bgmMuted ? '🎵背景音樂：OFF' : '🎵背景音樂：ON';
         }
         function sfxLabel() {
-          if (!audioUnlocked) return audioBlocked ? '🔈SFX（點一下解鎖）' : '🔈SFX';
-          return sfxMuted ? '🔈SFX：關' : '🔈SFX：開';
+          if (!audioUnlocked) return audioBlocked ? '🔈音效（點一下解鎖）' : '🔈音效';
+          return sfxMuted ? '🔈音效：OFF' : '🔈音效：ON';
         }
 
         // ✅ socket 只連一次（避免玩家不存在）
@@ -3401,8 +3668,15 @@ function App() {
             //   就算你剛好還停在 ROLE（例如房主/別人啟動遊戲時你在選角畫面）
             if (r?.status === 'PLAYING') {
               setView('GAME');
+
+              // ✅ 進棋局時顯示「載入棋局中」並預載資源（避免棋盤/音效第一次卡頓）
+              //   - 房主按 Start Game 會走 startGame()，其他人也會在這裡收到狀態切換
+              ensureGameReady();
             } else if (r?.status === 'LOBBY') {
               if (curView !== 'ROLE') setView('ROOM');
+
+              // ✅ 若正在「載入房間中」，一旦回到 Lobby 就可以關閉遮罩（保險）
+              if (loadingPhaseRef.current === 'ROOM') setLoadingPhase(null);
             } else if (r?.status === 'ENDED') {
               setView('GAME');
             }
@@ -3800,13 +4074,41 @@ function App() {
           });
         }
 
-        function createRoom(mode) {
+        
+        // ✅ 防呆：禁止名稱為 AI（避免被系統誤判成 AI 玩家）
+        function validatePlayerNameOrAlert() {
+          const s = String(name || '').trim();
+          if (!s) {
+            alert('請先輸入名字');
+            return null;
+          }
+          if (s.toLowerCase() === 'ai') {
+            alert('名字不能取為「AI」，請換一個名稱');
+            return null;
+          }
+          return s;
+        }
+
+function createRoom(mode) {
           audioRef.current?.uiClick();
-          socket.emit('createRoom', { maxPlayers: 4, name: name.trim(), mode }, (res) => {
+
+          const playerName = validatePlayerNameOrAlert();
+          if (!playerName) return;
+
+          // ✅ 預先載入（避免第一次打開房間/選角 UI 與音效延遲）
+          setLoadingPhase('ROOM');
+          const preloadP = preloadRoomAssetsOnce();
+
+          socket.emit('createRoom', { maxPlayers: 4, name: playerName, mode }, async (res) => {
             if (res.ok) {
               setRoom(res.room);
               setView('ROOM');
+              try {
+                await preloadP;
+              } catch (e) {}
+              setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
             } else {
+              setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
               alert(res.message || '建立失敗');
             }
           });
@@ -3814,13 +4116,28 @@ function App() {
 
         function joinRoom() {
           audioRef.current?.uiClick();
+
+          const playerName = validatePlayerNameOrAlert();
+          if (!playerName) return;
           const id = prompt('輸入房間ID');
           if (!id) return;
-          socket.emit('joinRoom', { roomId: id, name: name.trim() }, (res) => {
+
+          // ✅ 預先載入（避免第一次打開房間/選角 UI 與音效延遲）
+          setLoadingPhase('ROOM');
+          const preloadP = preloadRoomAssetsOnce();
+
+          socket.emit('joinRoom', { roomId: id, name: playerName }, async (res) => {
             if (res.ok) {
               setRoom(res.room);
               setView('ROOM');
-            } else alert(res.message || '加入失敗');
+              try {
+                await preloadP;
+              } catch (e) {}
+              setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
+            } else {
+              setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
+              alert(res.message || '加入失敗');
+            }
           });
         }
 
@@ -3862,7 +4179,7 @@ function App() {
           });
         }
 
-        function openRoleSelect(slot) {
+        async function openRoleSelect(slot) {
           audioRef.current?.uiClick();
           if (!room) return;
 
@@ -3880,11 +4197,21 @@ function App() {
 
           const s = slot === 2 ? 2 : 1;
           setPickingSlot(s);
+
+          // ✅ 保險：若房間預載還沒完全完成（手機解碼/快進房），進入選角前再補一次
+          if (!preloadCacheRef.current.roomDone) {
+            setLoadingPhase('ROOM');
+            try {
+              await preloadRoomAssetsOnce();
+            } catch (e) {}
+            setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
+          }
+
           setView('ROLE');
         }
 
         // ✅ NEW：房主幫 AI 選角（同樣跳到全螢幕 ROLE）
-        function openAiRoleSelect(targetIdOrName, slot) {
+        async function openAiRoleSelect(targetIdOrName, slot) {
           audioRef.current?.uiClick();
           if (!room) return;
 
@@ -3901,6 +4228,16 @@ function App() {
 
           const s = slot === 2 ? 2 : 1;
           setPickingSlot(s);
+
+          // ✅ 保險：若房間預載還沒完全完成（手機解碼/快進房），進入選角前再補一次
+          if (!preloadCacheRef.current.roomDone) {
+            setLoadingPhase('ROOM');
+            try {
+              await preloadRoomAssetsOnce();
+            } catch (e) {}
+            setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
+          }
+
           setView('ROLE');
         }
         // ✅ 只在「同一個玩家」內做 DUAL 兩角色不能重複
@@ -4027,7 +4364,14 @@ function App() {
 
         function startGame() {
           audioRef.current?.uiClick();
+
+          // ✅ 先預載棋局用到的圖與音（並顯示載入遮罩）
+          setLoadingPhase('GAME');
+          preloadGameAssetsOnce().catch(() => {});
+
           socket.emit('startGame', { roomId: room.id });
+
+          // ✅ 真正進入 GAME 時，roomUpdated 也會再 ensureGameReady 一次（保險）
         }
 
         /* =========================================================
@@ -4829,12 +5173,27 @@ function App() {
             e(
               'div',
               { className: 'audioPanel' + (isGameMobile ? ' game' : '') },
-              e('div', { className: 'audioRow' }, e('span', null, 'BGM'), e('button', { className: 'tinyBtn', onClick: toggleBgm }, bgmLabel())),
-              e('div', { className: 'audioRow' }, e('span', null, 'SFX'), e('button', { className: 'tinyBtn', onClick: toggleSfx }, sfxLabel())),
+              e('div', { className: 'audioRow' }, e('span', null, '背景音樂'), e('button', { className: 'tinyBtn', onClick: toggleBgm }, bgmLabel())),
+              e('div', { className: 'audioRow' }, e('span', null, '音效'), e('button', { className: 'tinyBtn', onClick: toggleSfx }, sfxLabel())),
               audioBlocked && !audioUnlocked
-                ? e('div', { className: 'hint' }, '提示：若無聲音，先點一下 BGM/SFX 以解鎖瀏覽器播放。')
+                ? e('div', { className: 'hint' }, '提示：若無聲音，先點一下 背景音樂/音效 以解鎖瀏覽器播放。')
                 : null
             ),
+
+          // ✅ Loading curtain (keep audio panel usable)
+          loadingPhase
+            ? e(
+                'div',
+                { className: 'loadingCurtain' },
+                e(
+                  'div',
+                  { className: 'loadingBox' },
+                  e('div', { className: 'spinner' }),
+                  e('div', { className: 'loadingTitle' }, loadingPhase === 'ROOM' ? '載入房間中' : '載入棋局中'),
+                  e('div', { className: 'loadingSub' }, '請稍候…')
+                )
+              )
+            : null,
 
           // ✅ (6) 輪到你了 Toast
           myTurnToast
@@ -5509,6 +5868,7 @@ function App() {
               },
               onConfirm: confirmRole,
               audio: audioRef.current,
+              audioRef: audioRef,
             }),
 
 
@@ -5608,7 +5968,7 @@ function App() {
         );
       }
 
-      function RoleSelectScreen({ room, slot, selectedRole, blockedRoleIndex, pickerLabel, onClose, onConfirm, audio }) {
+      function RoleSelectScreen({ room, slot, selectedRole, blockedRoleIndex, pickerLabel, onClose, onConfirm, audio, audioRef }) {
         const n = ROLES.length;
         const [current, setCurrent] = React.useState(typeof selectedRole === 'number' ? selectedRole : 0);
 
@@ -5645,8 +6005,11 @@ function App() {
         }, []);
 
         React.useEffect(() => {
-          try { audio?.playRoleVoice(current); } catch (e) {}
-        }, [current]);
+          try {
+            const am = audioRef?.current || audio;
+            am?.playRoleVoice(current);
+          } catch (e) {}
+        }, [current, audioRef]);
 
         function scheduleDragUpdate(px) {
           dragPxRef.current = px;
