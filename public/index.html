@@ -54,7 +54,9 @@
           ),
           var(--bg);
         color: var(--text);
-        overscroll-behavior: none;
+        /* ✅ 只禁 X，Y 仍允許正常捲動（ROOM 會靠 .screen 自己捲） */
+        overscroll-behavior-x: none;
+        overscroll-behavior-y: auto;
       }
 
       button {
@@ -3037,68 +3039,80 @@
 
         const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
 
+        // ✅ 加在 App() 裡、helpOpen state 附近（任何地方都行，但要在 useEffect 前）
+        const helpOpenRef = React.useRef(false);
         React.useEffect(() => {
-          // ✅ 只在「手機」且 view 是 GAME/ROLE 才鎖
-          // ROOM 要能上下滾（AI controls 要滑得到）
-          const shouldLock = isCoarse && vp.w < 920 && (view === 'GAME');
+          helpOpenRef.current = helpOpen;
+        }, [helpOpen]);
 
+        const lockTouchRef = React.useRef(false);
+
+        // ✅ 1) 只在「手機 + GAME + 真正在 PLAYING」才鎖頁面
+        React.useEffect(() => {
+          const playing = room?.status === 'PLAYING';
+
+          const shouldLock = isCoarse && vp.w < 920 && view === 'GAME' && playing;
+
+          lockTouchRef.current = shouldLock;
 
           const html = document.documentElement;
           const body = document.body;
 
-          const prevHtmlOverflow = html.style.overflow;
-          const prevBodyOverflow = body.style.overflow;
+          if (shouldLock) {
+            html.style.overflow = 'hidden';
+            body.style.overflow = 'hidden';
+          } else {
+            html.style.overflow = '';
+            body.style.overflow = '';
+          }
+        }, [isCoarse, vp.w, view, room?.status]);
+
+        // ✅ 2) touchmove 監聽「常駐」，但只有 lockTouchRef=true 時才 preventDefault
+        React.useEffect(() => {
+          const touchOpts = { passive: false };
 
           function onTouchMove(e) {
-            // ✅ 0) 允許雙指縮放（pinch）/多指手勢，不要阻擋
+            // ✅ 沒鎖就完全不管（ROOM 立刻恢復可捲）
+            if (!lockTouchRef.current) return;
+
+            // ✅ 允許雙指縮放
             if (e.touches && e.touches.length > 1) return;
 
             const t = e.target;
 
-            // ✅ 1) 允許技能說明抽屜內滑動
-            if (helpOpen) {
+            // ✅ 允許技能抽屜內捲動
+            if (helpOpenRef.current) {
               const drawer = t && t.closest ? t.closest('.helpDrawer') : null;
               if (drawer) return;
             }
 
-            // ✅ 2) 允許 carousel / 需要手勢的區域（避免左右滑被吃）
+            // ✅ 允許 carousel（左右滑/上下滑都不要被吃）
             const carousel = t && t.closest ? t.closest('.carousel') : null;
             if (carousel) return;
 
-            // ✅ 3) 只要手指所在位置「往上任何祖先」有真的可滾動容器，就放行
-            //     (不靠 class 名稱，ROOM/任何 panel 都救得到)
+            // ✅ 允許任何「真的可捲」的祖先容器（例如 .screen、任何 panel）
             try {
-              for (let el = t; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+              for (
+                let el = t;
+                el && el !== document.body && el !== document.documentElement;
+                el = el.parentElement
+              ) {
                 const cs = window.getComputedStyle(el);
                 const oy = cs.overflowY;
-                const canScrollY = (oy === 'auto' || oy === 'scroll') && (el.scrollHeight > el.clientHeight + 1);
+                const canScrollY =
+                  (oy === 'auto' || oy === 'scroll') &&
+                  el.scrollHeight > el.clientHeight + 1;
                 if (canScrollY) return;
               }
-            } catch (err) {
-              // ignore
-            }
+            } catch (err) {}
 
-            // ✅ 4) 其他地方才鎖（避免 GAME 畫面整頁被拖走）
+            // ✅ 其他地方才鎖住，避免 GAME 整頁被拖走
             e.preventDefault();
           }
 
-
-
-          // ✅ 重點：add/remove 必須用同一個 options 物件，才能保證移除成功
-          const touchOpts = { passive: false };
-
-          if (shouldLock) {
-            html.style.overflow = 'hidden';
-            body.style.overflow = 'hidden';
-            document.addEventListener('touchmove', onTouchMove, touchOpts);
-          }
-
-          return () => {
-            document.removeEventListener('touchmove', onTouchMove, touchOpts);
-            html.style.overflow = prevHtmlOverflow;
-            body.style.overflow = prevBodyOverflow;
-          };
-        }, [isCoarse, vp.w, view, helpOpen]);
+          document.addEventListener('touchmove', onTouchMove, touchOpts);
+          return () => document.removeEventListener('touchmove', onTouchMove, touchOpts);
+        }, []);
 
 
         async function ensureUnlocked() {
