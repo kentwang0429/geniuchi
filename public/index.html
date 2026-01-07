@@ -1293,6 +1293,46 @@
         grid-template-columns: 1fr 1fr;
         gap: 10px;
       }
+      /* ✅ 手機「選角畫面」專用：確認按鈕固定在底部置中 */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .roleScreen { position: fixed; } /* 保險 */
+
+        .roleScreen .roleBottom{
+          position: absolute !important; /* ✅ 用 absolute 避免 fixed 被 transform 祖先影響 */
+          left: 50% !important;
+          transform: translateX(-50%) !important;
+          bottom: calc(10px + var(--vv-bottom) + env(safe-area-inset-bottom)) !important;
+          z-index: 9999 !important;
+
+          width: min(420px, 86vw) !important;
+
+          display: flex !important;
+          justify-content: center !important;
+
+          padding: 0 !important;
+          background: none !important;
+          border: none !important;
+          box-shadow: none !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+
+        .roleScreen .roleBottom::before{
+          content: none !important; /* ✅ 你之前那個底座漸層直接關掉 */
+        }
+
+        .roleScreen .roleBottom .confirm{
+          width: 100% !important;
+          margin: 0 !important;
+        }
+      }
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .roleScreen .roleBottom{ outline: 3px solid red !important; }
+      }
+
       .stat {
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.12);
