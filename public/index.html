@@ -2481,6 +2481,9 @@
           this.sfxMuted = false;
           this._wantBgm = 'lobby';
 
+          this._bgmToken = 0;
+          this._destroyed = false;
+
           this.bgm = null;
           this.bgmKind = null;
           this.battleLoop = null;
@@ -2578,8 +2581,22 @@
         async _safePlay(a) {
           if (!a) return false;
           if (this.bgmMuted) return false;
+          if (this._destroyed) {
+            try {
+              a.pause();
+              a.currentTime = 0;
+            } catch (e) {}
+            return false;
+          }
           try {
             await a.play();
+            if (this._destroyed) {
+              try {
+                a.pause();
+                a.currentTime = 0;
+              } catch (e) {}
+              return false;
+            }
             if (!this.unlocked) {
               this.unlocked = true;
               this.onUnlocked();
@@ -2623,6 +2640,31 @@
           this.bgm = null;
           this.battleLoop = null;
           this.bgmKind = null;
+        }
+
+        destroy() {
+          this._destroyed = true;
+          try { this.stopAllBgm(); } catch (e) {}
+          try {
+            if (this.voice) {
+              this.voice.pause();
+              this.voice.currentTime = 0;
+            }
+          } catch (e) {}
+          // ✅ 最終保險：停掉全域音池裡所有 loop / bgm（避免手機疊音）
+          try {
+            const pool = window.__GENIUCHI_AUDIO_POOL || [];
+            pool.forEach((a) => {
+              if (!a) return;
+              const k = a.__g_kind;
+              if (k === 'bgm' || a.loop) {
+                try {
+                  a.pause();
+                  a.currentTime = 0;
+                } catch (e) {}
+              }
+            });
+          } catch (e) {}
         }
 
         setBgmMuted(m) {
@@ -3205,13 +3247,21 @@ function App() {
                     const img = new Image();
                     img.decoding = 'async';
                     img.loading = 'eager';
+                    const t = setTimeout(() => {
+                      try { img.src = ''; } catch (e) {}
+                      resolve(false);
+                    }, 2500);
+                    const done = async (ok) => {
+                      try { clearTimeout(t); } catch (e) {}
+                      resolve(!!ok);
+                    };
                     img.onload = async () => {
                       try {
                         if (img.decode) await img.decode();
                       } catch (e) {}
-                      resolve(true);
+                      done(true);
                     };
-                    img.onerror = () => resolve(false);
+                    img.onerror = () => done(false);
                     img.src = u;
 
                     // if already cached
@@ -3220,7 +3270,7 @@ function App() {
                         try {
                           if (img.decode) await img.decode();
                         } catch (e) {}
-                        resolve(true);
+                        done(true);
                       })();
                     }
                   } catch (e) {
@@ -3793,6 +3843,14 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
               s.disconnect();
             } catch (e) {}
 
+            // ✅ stop any playing audio on unmount/re-mount (mobile strict-mode safe)
+            try {
+              audioRef.current?.destroy?.();
+            } catch (e) {}
+            try {
+              audioRef.current = null;
+            } catch (e) {}
+
             window.removeEventListener('resize', onResize);
             if (window.visualViewport) {
               window.visualViewport.removeEventListener('resize', onResize);
@@ -4202,7 +4260,7 @@ function createRoom(mode) {
           if (!preloadCacheRef.current.roomDone) {
             setLoadingPhase('ROOM');
             try {
-              await preloadRoomAssetsOnce();
+              await Promise.race([preloadRoomAssetsOnce(), new Promise((r) => setTimeout(r, 2600))]);
             } catch (e) {}
             setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
           }
@@ -4233,7 +4291,7 @@ function createRoom(mode) {
           if (!preloadCacheRef.current.roomDone) {
             setLoadingPhase('ROOM');
             try {
-              await preloadRoomAssetsOnce();
+              await Promise.race([preloadRoomAssetsOnce(), new Promise((r) => setTimeout(r, 2600))]);
             } catch (e) {}
             setLoadingPhase((prev) => (prev === 'ROOM' ? null : prev));
           }
