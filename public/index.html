@@ -3030,11 +3030,10 @@
 
         const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
 
-        /* ✅ Mobile 對局：鎖住整頁上下滑
-          - 只有在 helpOpen 且手指在 .helpDrawer 內時，允許正常滑動
-        */
         React.useEffect(() => {
-          const shouldLock = isGameMobile && view === 'GAME';
+          // ✅ 只在「手機」且 view 是 GAME/ROLE 才鎖
+          // ROOM 要能上下滾（AI controls 要滑得到）
+          const shouldLock = isCoarse && vp.w < 920 && (view === 'GAME' || view === 'ROLE');
 
           const html = document.documentElement;
           const body = document.body;
@@ -3043,7 +3042,7 @@
           const prevBodyOverflow = body.style.overflow;
 
           function onTouchMove(e) {
-            // 允許技能說明抽屜內滑動
+            // ✅ 允許技能說明抽屜內滑動
             if (helpOpen) {
               const t = e.target;
               const drawer = t && t.closest ? t.closest('.helpDrawer') : null;
@@ -3052,20 +3051,22 @@
             e.preventDefault();
           }
 
+          // ✅ 重點：add/remove 必須用同一個 options 物件，才能保證移除成功
+          const touchOpts = { passive: false };
+
           if (shouldLock) {
             html.style.overflow = 'hidden';
             body.style.overflow = 'hidden';
-
-            // iOS/Android：阻止整頁被 touchmove 帶著滑
-            document.addEventListener('touchmove', onTouchMove, { passive: false });
+            document.addEventListener('touchmove', onTouchMove, touchOpts);
           }
 
           return () => {
-            document.removeEventListener('touchmove', onTouchMove, { passive: false });
+            document.removeEventListener('touchmove', onTouchMove, touchOpts);
             html.style.overflow = prevHtmlOverflow;
             body.style.overflow = prevBodyOverflow;
           };
-        }, [isGameMobile, view, helpOpen]);
+        }, [isCoarse, vp.w, view, helpOpen]);
+
 
         async function ensureUnlocked() {
           const am = audioRef.current;
