@@ -259,7 +259,7 @@
       .jeice::before,
       .jeice::after {
         content: '';
-        position: absolute;
+        position: absolute !important;
         top: calc(var(--piece) * 0.08);
         left: 50%;
         width: calc(var(--piece) * 0.26);
@@ -1428,8 +1428,8 @@
         pointer-events: none;
       }
 
-      .roleCard > *:not(.cardArt):not(.cardShade):not(.cardSkillBtn):not(.cardSkillPop),
-      .desktopCard > *:not(.cardArt):not(.cardShade){
+      .roleCard > *:not(.cardArt):not(.cardShade):not(.cardSkillBtn):not(.cardSkillPop):not(.cardTitleVertical),
+      .desktopCard > *:not(.cardArt):not(.cardShade):not(.cardTitleVertical){
         position: relative;
         z-index: 2;
       }
@@ -1438,7 +1438,7 @@
       /* 右下直排名字 */
       .roleCard .cardTitleVertical,
       .desktopCard .cardTitleVertical {
-        position: absolute;
+        position: absolute !important;
         right: calc(14px + env(safe-area-inset-right));
         top: auto !important;
         bottom: calc(14px + env(safe-area-inset-bottom));
@@ -1466,7 +1466,7 @@
       /* ✅ 手機：直排名字往上抬，避開底部 dock 視覺壓迫 */
       @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
         .roleCard .cardTitleVertical{
-          bottom: calc(14px + env(safe-area-inset-bottom));
+          bottom: calc(96px + env(safe-area-inset-bottom));
         }
       }
 
