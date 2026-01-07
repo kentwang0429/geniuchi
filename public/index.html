@@ -1409,12 +1409,12 @@
         pointer-events: none;
       }
 
-      /* 讓原本內容在圖上層 */
-      .roleCard > *,
-      .desktopCard > * {
+      .roleCard > *:not(.cardArt):not(.cardShade):not(.cardSkillBtn):not(.cardSkillPop),
+      .desktopCard > *:not(.cardArt):not(.cardShade){
         position: relative;
         z-index: 2;
       }
+
 
       /* 右下直排名字 */
       .roleCard .cardTitleVertical,
