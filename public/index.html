@@ -1116,7 +1116,7 @@
         filter: none;
 
         /* ✅ 仍然讓滑動手勢在 carousel 上吃到 */
-        pointer-events: none;
+        pointer-events: auto;
       }
 
       /* 更小螢幕：再縮一點 */
@@ -1139,55 +1139,81 @@
       @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
         .roleInfoBelow .desc{ display:none; }
       }
-      /* ✅ NEW：不要顯示卡片下方資訊欄（吉斯/定位/回合那塊） */
-      .roleInfoBelow { display: none; }
+      /* ✅ 只在手機隱藏：卡片下方資訊欄（吉斯/定位/回合那塊） */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .roleInfoBelow { display: none; }
+      }
+
+      /* ✅ 桌機一定要顯示（保險） */
+      @media (hover: hover) and (pointer: fine) {
+        .roleInfoBelow { display: block; }
+      }
+
 
       /* 左下角技能按鈕 */
+      /* 左下角技能按鈕（手機卡片用） */
       .cardSkillBtn{
         position: absolute;
-        left: 12px;
-        bottom: 12px;
-        z-index: 6;
+        left: 14px;
 
-        padding: 7px 10px;
+        /* ✅ 往上抬：避開底部 dock（你原本 bottom:12px 會被壓住） */
+        bottom: 78px;
+
+        z-index: 8;
+
+        padding: 8px 12px;
         border-radius: 999px;
         font-size: 12px;
         font-weight: 1000;
 
-        background: rgba(0,0,0,0.40);
-        border: 1px solid rgba(255,255,255,0.18);
-        box-shadow: 0 14px 34px rgba(0,0,0,0.35);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+        /* ✅ 更亮、更明顯 */
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.26);
+        box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
 
-        /* ✅ roleCard 本體 pointer-events: none，所以按鈕要能點 */
+        color: rgba(255,255,255,0.92);
+        text-shadow: 0 8px 16px rgba(0,0,0,0.55);
+
         pointer-events: auto;
       }
+
 
       /* 左下角技能面板（預設收起） */
       .cardSkillPop{
         position: absolute;
-        left: 12px;
-        bottom: 54px;
-        z-index: 6;
+        left: 14px;
 
-        width: min(260px, 72%);
-        max-height: min(44%, 240px);
+        /* ✅ 跟著技能按鈕上移（按鈕在 78px，所以面板再往上） */
+        bottom: 126px;
+
+        z-index: 8;
+
+        width: min(280px, 78%);
+        max-height: min(48%, 260px);
         overflow: auto;
 
         padding: 10px 10px;
         border-radius: 16px;
-        background: rgba(0,0,0,0.58);
-        border: 1px solid rgba(255,255,255,0.18);
-        box-shadow: 0 18px 55px rgba(0,0,0,0.50);
+
+        background: rgba(0,0,0,0.62);
+        border: 1px solid rgba(255,255,255,0.20);
+        box-shadow: 0 18px 60px rgba(0,0,0,0.55);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
 
         opacity: 0;
         transform: translateY(6px) scale(0.98);
         transition: opacity 140ms ease, transform 140ms ease;
-        pointer-events: none; /* 收起狀態不可點 */
+        pointer-events: none;
       }
+      .cardSkillPop.open{
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+      }
+
 
       .cardSkillPop.open{
         opacity: 1;
@@ -1221,6 +1247,18 @@
         align-items: center;
         justify-content: space-between;
       }
+      /* ✅ 手機：把右上 icon 釘死在卡片右上角 */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .carousel .roleCardHeader{
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          z-index: 7;
+          width: auto;
+          pointer-events: none; /* 只是裝飾，不吃手勢 */
+        }
+      }
+
       .roleName {
         font-size: 22px;
         font-weight: 1000;
@@ -1364,6 +1402,12 @@
         color: rgba(255,255,255,0.92);
         text-shadow: 0 10px 18px rgba(0,0,0,0.55);
         pointer-events: none;
+      }
+      /* ✅ 手機：直排名字往上抬，避開底部 dock 視覺壓迫 */
+      @media (hover: none) and (pointer: coarse) and (max-width: 919px) {
+        .roleCard .cardTitleVertical{
+          bottom: 84px; /* 你覺得太高/太低再微調：70~100 都合理 */
+        }
       }
 
       @media (hover: hover) and (pointer: fine) {
