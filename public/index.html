@@ -1492,7 +1492,7 @@
         color: var(--muted);
       }
 
-      /* ===== 結算畫面 ResultScreen（15秒 + 可提前回房） ===== */
+      /* ===== 結算畫面 ResultScreen（35秒 + 可提前回房） ===== */
       .resultScreen{
         position: fixed;
         inset: 0;
@@ -2390,6 +2390,7 @@
         bgm_lobby: '/audio/chala_head_chala.mp3',
         bgm_battle_intro: '/audio/fighting_music.mp3',
         bgm_battle_loop: '/audio/fighting_music_all.mp3',
+        bgm_victory: '/audio/victory_bgm.mp3',
         sfx_victory: '/audio/sfx_victory_placeholder.mp3',
         sfx_ui_click: '/audio/sfx_ui_click_placeholder.mp3',
         voice_role: {
@@ -2619,6 +2620,11 @@
 
         async startVictory() {
           this._wantBgm = 'victory';
+
+          // ✅ 勝利音效（SFX，會尊重 SFX 靜音）
+          this.playOnce(AUDIO_ASSETS.sfx_victory, this.vol.sfx);
+
+          // ✅ 勝利結算 BGM（會尊重 BGM 靜音）
           if (this.bgmMuted) return;
 
           if (this.bgmKind === 'victory' && this.bgm) {
@@ -2628,14 +2634,15 @@
 
           this.stopAllBgm();
           this.bgmKind = 'victory';
-          this.bgm = this._makeAudio(AUDIO_ASSETS.sfx_victory, {
-            loop: false,
-            volume: 0.9,
+          this.bgm = this._makeAudio(AUDIO_ASSETS.bgm_victory || AUDIO_ASSETS.sfx_victory, {
+            loop: true,
+            volume: this.vol.bgm,
           });
 
           const ok = await this._safePlay(this.bgm);
           if (!ok) this.bgmKind = null;
         }
+
 
         stopVictory() {
           if (this.bgmKind !== 'victory') return;
@@ -3106,7 +3113,7 @@ function App() {
         const [fx, setFx] = React.useState(null);
         const fxTimerRef = React.useRef(null);
 
-        // ✅ 結算畫面（15 秒）：凍結終局棋盤 + 閃電標線 + 顯示勝利者角色卡
+        // ✅ 結算畫面（35 秒）：凍結終局棋盤 + 閃電標線 + 顯示勝利者角色卡
         // result: { winnerIndex, winnerName, secondsLeft, finalBoard, winLine, winnerSlots, winnerRoleIdxs }
         const [result, setResult] = React.useState(null);
         const resultTimerRef = React.useRef(null);
@@ -3722,11 +3729,11 @@ function App() {
             } catch (e) {}
           }
 
-          // 顯示結算畫面（15秒）
+          // 顯示結算畫面（35秒）
           setResult({
             winnerIndex,
             winnerName,
-            secondsLeft: 15,
+            secondsLeft: 35,
             finalBoard,
             winLine: winLine || [],
             winnerSlots,
@@ -3735,7 +3742,7 @@ function App() {
 
           if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startVictory();
 
-          let left = 15;
+          let left = 35;
           resultTimerRef.current = setInterval(() => {
             left -= 1;
             setResult((rg) => (rg ? { ...rg, secondsLeft: left } : rg));
