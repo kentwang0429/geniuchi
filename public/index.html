@@ -3050,6 +3050,9 @@
           const prevBodyOverflow = body.style.overflow;
 
           function onTouchMove(e) {
+            // ✅ 0) 允許雙指縮放（pinch）/多指手勢，不要阻擋
+            if (e.touches && e.touches.length > 1) return;
+
             const t = e.target;
 
             // ✅ 1) 允許技能說明抽屜內滑動
@@ -3058,21 +3061,27 @@
               if (drawer) return;
             }
 
-            // ✅ 2) 允許房間頁面本體（.screen）上下滑
-            const screen = t && t.closest ? t.closest('.screen') : null;
-            if (screen) return;
-
-            // ✅ 3) 允許選角 carousel 的手勢（不然左右滑會被你吃掉）
+            // ✅ 2) 允許 carousel / 需要手勢的區域（避免左右滑被吃）
             const carousel = t && t.closest ? t.closest('.carousel') : null;
             if (carousel) return;
 
-            // ✅ 4) 允許表單元件正常滑動/操作（特別是 iOS）
-            const tag = (t && t.tagName ? String(t.tagName).toLowerCase() : '');
-            if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'button') return;
+            // ✅ 3) 只要手指所在位置「往上任何祖先」有真的可滾動容器，就放行
+            //     (不靠 class 名稱，ROOM/任何 panel 都救得到)
+            try {
+              for (let el = t; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+                const cs = window.getComputedStyle(el);
+                const oy = cs.overflowY;
+                const canScrollY = (oy === 'auto' || oy === 'scroll') && (el.scrollHeight > el.clientHeight + 1);
+                if (canScrollY) return;
+              }
+            } catch (err) {
+              // ignore
+            }
 
-            // 其他地方才鎖
+            // ✅ 4) 其他地方才鎖（避免 GAME 畫面整頁被拖走）
             e.preventDefault();
           }
+
 
 
           // ✅ 重點：add/remove 必須用同一個 options 物件，才能保證移除成功
