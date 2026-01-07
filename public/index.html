@@ -3165,6 +3165,15 @@ function App() {
         }, [vp.w, vp.h]);
 
         const isGameMobile = isCoarse && view === 'GAME' && vp.w < 920;
+        // ✅ Mobile：滑動換角色時也要播該角色語音（避免只有桌機 hover 才會播）
+        React.useEffect(() => {
+          try {
+            if (view !== 'ROLE') return;
+            if (!(isCoarse || vp.w < 920)) return; // 只限手機/窄螢幕
+            audioRef.current?.playRoleVoice?.(roleCursor);
+          } catch (e) {}
+        }, [view, roleCursor, isCoarse, vp.w]);
+
 
         // ✅ 加在 App() 裡、helpOpen state 附近（任何地方都行，但要在 useEffect 前）
         const helpOpenRef = React.useRef(false);
