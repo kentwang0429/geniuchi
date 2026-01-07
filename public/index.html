@@ -165,11 +165,18 @@
 
       .screen {
         flex: 1;
+        min-height: 0;                   /* ✅ 很重要：flex 子層才有機會滾 */
         display: flex;
         flex-direction: column;
         padding: 14px;
         gap: 12px;
+
+        overflow-y: auto;                /* ✅ ROOM 超出時可上下滑 */
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
       }
+
 
       .card {
         background: linear-gradient(
@@ -3033,7 +3040,8 @@
         React.useEffect(() => {
           // ✅ 只在「手機」且 view 是 GAME/ROLE 才鎖
           // ROOM 要能上下滾（AI controls 要滑得到）
-          const shouldLock = isCoarse && vp.w < 920 && (view === 'GAME' || view === 'ROLE');
+          const shouldLock = isCoarse && vp.w < 920 && (view === 'GAME');
+
 
           const html = document.documentElement;
           const body = document.body;
@@ -3042,14 +3050,30 @@
           const prevBodyOverflow = body.style.overflow;
 
           function onTouchMove(e) {
-            // ✅ 允許技能說明抽屜內滑動
+            const t = e.target;
+
+            // ✅ 1) 允許技能說明抽屜內滑動
             if (helpOpen) {
-              const t = e.target;
               const drawer = t && t.closest ? t.closest('.helpDrawer') : null;
               if (drawer) return;
             }
+
+            // ✅ 2) 允許房間頁面本體（.screen）上下滑
+            const screen = t && t.closest ? t.closest('.screen') : null;
+            if (screen) return;
+
+            // ✅ 3) 允許選角 carousel 的手勢（不然左右滑會被你吃掉）
+            const carousel = t && t.closest ? t.closest('.carousel') : null;
+            if (carousel) return;
+
+            // ✅ 4) 允許表單元件正常滑動/操作（特別是 iOS）
+            const tag = (t && t.tagName ? String(t.tagName).toLowerCase() : '');
+            if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'button') return;
+
+            // 其他地方才鎖
             e.preventDefault();
           }
+
 
           // ✅ 重點：add/remove 必須用同一個 options 物件，才能保證移除成功
           const touchOpts = { passive: false };
