@@ -2716,6 +2716,7 @@ try {
             if (this.voice) {
               this.voice.pause();
               this.voice.currentTime = 0;
+              try { this._endBgmHoldForVoice(); } catch (e) {}
             }
           } catch (e) {}
 
@@ -2806,12 +2807,91 @@ try {
               if (this.voice) {
                 this.voice.pause();
                 this.voice.currentTime = 0;
+                try { this._endBgmHoldForVoice(); } catch (e) {}
               }
             } catch (e) {}
           }
         }
 
+
+        // ✅ Mobile: while a role voice is playing, temporarily pause BGM (to prevent iOS from cutting the voice),
+        //    but keep timeline progress by advancing currentTime when resuming.
+        _beginBgmHoldForVoice() {
+          try {
+            if (!this._isCoarse) return;
+            if (this._bgmHoldActive) return;
+
+            this._bgmHoldActive = true;
+            this._bgmHoldAt = Date.now();
+            this._bgmHoldList = [];
+
+            const pool = (window.__GENIUCHI_AUDIO_POOL = window.__GENIUCHI_AUDIO_POOL || []);
+            pool.forEach((a) => {
+              if (!a) return;
+              const k = a.__g_kind;
+              if (k === 'bgm' || a.loop) {
+                try {
+                  this._bgmHoldList.push({
+                    a,
+                    t: typeof a.currentTime === 'number' ? a.currentTime : 0,
+                    wasPlaying: !a.paused,
+                  });
+                  a.pause();
+                } catch (e) {}
+              }
+            });
+          } catch (e) {}
+        }
+
+        _endBgmHoldForVoice() {
+          try {
+            if (!this._bgmHoldActive) return;
+
+            const elapsed = (Date.now() - (this._bgmHoldAt || Date.now())) / 1000;
+            const list = Array.isArray(this._bgmHoldList) ? this._bgmHoldList : [];
+
+            this._bgmHoldActive = false;
+            this._bgmHoldAt = 0;
+            this._bgmHoldList = [];
+
+            list.forEach((it) => {
+              const a = it?.a;
+              if (!a) return;
+
+              try {
+                const t0 = typeof it.t === 'number' ? it.t : 0;
+                const dur = a.duration;
+
+                if (elapsed > 0 && dur && isFinite(dur) && dur > 0) {
+                  let nt = t0 + elapsed;
+                  if (a.loop) nt = nt % dur;
+                  else nt = Math.min(nt, Math.max(0, dur - 0.05));
+                  a.currentTime = nt;
+                }
+
+                // restore volume/mute for BGM tracks
+                if (a.__g_kind === 'bgm' || a.loop) {
+                  const baseVol = typeof a.__g_baseVol === 'number' ? a.__g_baseVol : this.vol?.bgm || 0.35;
+                  a.volume = this.bgmMuted ? 0 : clamp(baseVol, 0, 1);
+                  try { a.muted = !!this.bgmMuted; } catch (e) {}
+                }
+
+                // resume only if it was playing before hold (respect mute: we still "play muted" to keep progress)
+                if (it.wasPlaying) {
+                  a.play().catch((err) => this._maybeNeedGesture(err));
+                }
+              } catch (e) {}
+            });
+
+            // after releasing hold, make sure we are on the right BGM kind
+            try {
+              if (this.unlocked) this.resumeWantedBgm();
+            } catch (e) {}
+          } catch (e) {}
+        }
+
         async resumeWantedBgm() {
+          if (this._bgmHoldActive) return;
 if (!this.unlocked) {
             const ok = await this.unlock();
             if (!ok) return;
@@ -2824,6 +2904,7 @@ if (!this.unlocked) {
         async startLobby() {
           this._wantBgm = 'lobby';
 
+          if (this._bgmHoldActive) return;
           // ✅ 防止多個 startLobby 同時進來造成手機疊音（以 token 只保留最後一次）
           const token = (this._bgmToken = (this._bgmToken || 0) + 1);
 
@@ -2854,6 +2935,7 @@ if (!this.unlocked) {
         async startBattle() {
           this._wantBgm = 'battle';
 
+          if (this._bgmHoldActive) return;
           // ✅ 防止多個 startBattle 同時進來造成手機疊音
           const token = (this._bgmToken = (this._bgmToken || 0) + 1);
 
@@ -2912,6 +2994,7 @@ if (!this.unlocked) {
         async startVictory() {
           this._wantBgm = 'victory';
 
+          if (this._bgmHoldActive) return;
           // ✅ 防止多個 startVictory 同時進來造成手機疊音
           const token = (this._bgmToken = (this._bgmToken || 0) + 1);
 
@@ -2986,8 +3069,25 @@ if (!this.unlocked) {
             }
           } catch (e) {}
 
+          try { this._beginBgmHoldForVoice(); } catch (e) {}
+
           const vv = clamp(this.vol.voice * (this._isCoarse ? 1.25 : 1.0), 0, 1);
           this.voice = this._makeAudio(src, { loop: false, volume: vv });
+          try {
+            if (this.voice) {
+              this.voice.addEventListener(
+                'ended',
+                () => {
+                  try { this._endBgmHoldForVoice(); } catch (e) {}
+                },
+                { once: true }
+              );
+            }
+            // safety: in case ended never fires (some mobile cases)
+            setTimeout(() => {
+              try { this._endBgmHoldForVoice(); } catch (e) {}
+            }, 6500);
+          } catch (e) {}
           this.voice.play().catch((err) => this._maybeNeedGesture(err));
         }
       }
