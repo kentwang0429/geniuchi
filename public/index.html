@@ -393,7 +393,14 @@
       }
       .playerName {
         font-weight: 1000;
-        max-width: 180px;
+        max-width: 220px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .playerNameText {
+        min-width: 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -414,6 +421,17 @@
       .aiBadge {
         border-color: rgba(255, 193, 7, 0.35);
         background: rgba(255, 193, 7, 0.12);
+        padding: 0;
+        width: 22px;
+        height: 22px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        font-weight: 1000;
+        font-size: 11px;
+        flex: 0 0 auto;
       }
       .aiControls {
         display: flex;
@@ -2524,6 +2542,7 @@
           } catch (e) {}
 
           this.vol = { bgm: 0.35, sfx: 0.8, voice: 0.95 };
+          this._isCoarse = !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
           this._lastVoiceAt = 0;
         }
 
@@ -2537,6 +2556,7 @@
           const baseVol = clamp(volume, 0, 1);
           try { a.__g_baseVol = baseVol; } catch (e) {}
           a.volume = kind === 'bgm' ? (this.bgmMuted ? 0 : baseVol) : baseVol;
+          try { a.muted = kind === 'bgm' ? !!this.bgmMuted : false; } catch (e) {}
 try {
             a.__g_kind = kind;
           } catch (e) {}
@@ -2580,8 +2600,21 @@ try {
           const a = new Audio(url);
           a.preload = 'auto';
           a.volume = 0;
+          a.__g_kind = 'bgm';
 
           try {
+            // ✅ 防止手機偶發的 BGM 疊播：播放前先把其他 BGM/loop 都停掉
+            try {
+              const pool = window.__GENIUCHI_AUDIO_POOL || [];
+              pool.forEach((x) => {
+                if (!x || x === a) return;
+                const k = x.__g_kind;
+                if (k === 'bgm' || x.loop) {
+                  try { x.pause(); } catch (e) {}
+                }
+              });
+            } catch (e) {}
+
             await a.play();
             a.pause();
             a.currentTime = 0;
@@ -2598,15 +2631,29 @@ try {
 
         async _safePlay(a) {
           if (!a) return false;
-if (this._destroyed) {
+          if (this._destroyed) {
             try {
               a.pause();
               a.currentTime = 0;
             } catch (e) {}
             return false;
           }
+
           try {
+            // ✅ 防止手機偶發的 BGM 疊播：播放前先把其他 BGM/loop 都停掉
+            try {
+              const pool = window.__GENIUCHI_AUDIO_POOL || [];
+              pool.forEach((x) => {
+                if (!x || x === a) return;
+                const k = x.__g_kind;
+                if (k === 'bgm' || x.loop) {
+                  try { x.pause(); } catch (e) {}
+                }
+              });
+            } catch (e) {}
+
             await a.play();
+
             if (this._destroyed) {
               try {
                 a.pause();
@@ -2614,6 +2661,7 @@ if (this._destroyed) {
               } catch (e) {}
               return false;
             }
+
             if (!this.unlocked) {
               this.unlocked = true;
               this.onUnlocked();
@@ -2702,6 +2750,7 @@ if (this._destroyed) {
                 const k = a.__g_kind;
                 if (k === 'bgm' || a.loop) {
                   try { a.volume = 0; } catch (e) {}
+                  try { a.muted = true; } catch (e) {}
                 }
               });
             } catch (e) {}
@@ -2715,6 +2764,7 @@ if (this._destroyed) {
           const restoreVol = (a) => {
             const base = a?.__g_baseVol ?? this.vol?.bgm ?? 0.35;
             try { a.volume = clamp(base, 0, 1); } catch (e) {}
+            try { a.muted = false; } catch (e) {}
             if (elapsed > 0) {
               try {
                 const dur = a.duration;
@@ -2882,7 +2932,8 @@ if (this.bgmKind === 'battle' && this.bgm) {
             }
           } catch (e) {}
 
-          this.voice = this._makeAudio(src, { loop: false, volume: this.vol.voice });
+          const vv = clamp(this.vol.voice * (this._isCoarse ? 1.25 : 1.0), 0, 1);
+          this.voice = this._makeAudio(src, { loop: false, volume: vv });
           this.voice.play().catch((err) => this._maybeNeedGesture(err));
         }
       }
@@ -3510,6 +3561,9 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         // ✅ 結算期間收到 roomUpdated（因為我們會立刻 restartGame），先暫存，離開結算再套用
         const pendingRoomAfterResultRef = React.useRef(null);
 
+        // ✅ AI 自動準備：結算後自動把 AI 的顏色/角色補回來（避免 restartGame 後被清空）
+        const aiAutoCfgRef = React.useRef(null);
+
         const roomRef = React.useRef(null);
 
         // ✅ Jeice auto-start guard
@@ -3650,18 +3704,29 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
           return false;
         }
 
-        async function toggleBgm() {
+                async function toggleBgm() {
           const am = audioRef.current;
           if (!am) return;
+
+          // ✅ nextMuted: 這次切換後的新狀態（true=關、false=開）
+          const nextMuted = !bgmMuted;
+
+          // ✅ OFF：不需要解鎖（AudioMgr 會用音量=0 保留進度）
+          if (nextMuted) {
+            setBgmMuted(true);
+            am.setBgmMuted(true);
+            return;
+          }
+
+          // ✅ ON：需要先解鎖，否則手機瀏覽器會擋播放
           const ok = await ensureUnlocked();
           if (!ok) return;
 
-          const next = !bgmMuted;
-          setBgmMuted(next);
-          am.setBgmMuted(next);
+          setBgmMuted(false);
+          am.setBgmMuted(false);
         }
 
-        async function toggleSfx() {
+async function toggleSfx() {
           const am = audioRef.current;
           if (!am) return;
           const ok = await ensureUnlocked();
@@ -3937,7 +4002,7 @@ if (result) {
             am.startLobby();
             return;
           }
-        }, [view, room?.status, result, bgmMuted]);
+        }, [view, room?.status, result]);
 
         React.useEffect(() => {
           return () => {
@@ -4118,6 +4183,36 @@ if (result) {
 
           const { winLine, winnerSlots, winnerRoleIdxs } = computeWinnerLineAndRoles(roomSnap, winnerIndex, finalBoard);
 
+          // ✅ 記住當下 AI 的顏色/角色（讓 restartGame 回到 lobby 後可以自動補回）
+          try {
+            const cfg = {};
+            (roomSnap?.players || []).forEach((pp) => {
+              if (!isAiPlayer(pp)) return;
+              const key = pp?.id || pp?.name;
+              if (!key) return;
+              const role1 =
+                typeof pp?.roleIndex1 === 'number'
+                  ? pp.roleIndex1
+                  : typeof pp?.roleIndex === 'number'
+                    ? pp.roleIndex
+                    : Array.isArray(pp?.roles)
+                      ? pp.roles[0]
+                      : undefined;
+              const role2 =
+                typeof pp?.roleIndex2 === 'number'
+                  ? pp.roleIndex2
+                  : Array.isArray(pp?.roles)
+                    ? pp.roles[1]
+                    : undefined;
+              cfg[String(key)] = {
+                colorIndex: typeof pp?.colorIndex === 'number' ? pp.colorIndex : undefined,
+                role1: typeof role1 === 'number' ? role1 : undefined,
+                role2: typeof role2 === 'number' ? role2 : undefined,
+              };
+            });
+            aiAutoCfgRef.current = cfg;
+          } catch (e) {}
+
           // ✅ 立刻清殘局：把 restartGame 提前到「進結算那刻」就送出
           //    這樣就不會發生「上一局 timer 到點才 restartGame，卻把下一局清掉」
           const rid = roomSnap?.id;
@@ -4175,6 +4270,9 @@ if (result) {
             pendingRoomAfterResultRef.current = null;
           }
 
+          // ✅ 結算回到房間後，若 AI 被清空（顏色/角色），自動補回
+          try { autoPrepareAiIfNeeded(roomRef.current); } catch (e) {}
+
           setView('ROOM');
         }
 
@@ -4197,8 +4295,8 @@ if (result) {
             alert('請先輸入名字');
             return null;
           }
-          if (s.toLowerCase() === 'ai') {
-            alert('名字不能取為「AI」，請換一個名稱');
+          if (s.toLowerCase() === 'ai' || s.toLowerCase().startsWith('ai')) {
+            alert('名字不能以「AI」開頭（例如 AI、ai54、AIot），請換一個名稱');
             return null;
           }
           return s;
@@ -4498,7 +4596,65 @@ function createRoom(mode) {
           if (p.isAI || p.isAi || p.ai || p.bot) return true;
           const n = String(p.name || '').trim().toLowerCase();
           return n.startsWith('ai') || n.startsWith('bot') || n.includes('[ai]') || n.includes('(ai)');
+        
+        // ✅ AI 自動準備：若 restartGame 後 AI 的顏色/角色被清空，嘗試自動補回（不彈警告）
+        function autoPrepareAiIfNeeded(roomNow) {
+          try {
+            const r = roomNow || roomRef.current;
+            if (!r?.id) return;
+            if (r?.status !== 'LOBBY') return;
+            if (!socket) return;
+            if (r?.hostId !== socket?.id) return;
+            const cfg = aiAutoCfgRef.current;
+            if (!cfg) return;
+
+            const trySetColor = (target, colorIndex) => {
+              if (typeof colorIndex !== 'number') return;
+              emitTry(
+                ['setAiColor', 'setAIColor', 'aiPickColor', 'pickColorFor', 'pickColorByHost'],
+                { roomId: r.id, target, colorIndex },
+                () => {},
+                350
+              );
+            };
+
+            const trySetRole = (target, roleIndex, slot) => {
+              if (typeof roleIndex !== 'number') return;
+              emitTry(
+                ['setAiRole', 'setAIRole', 'aiPickRole', 'pickRoleFor', 'pickRoleByHost'],
+                { roomId: r.id, target, roleIndex, slot },
+                () => {},
+                350
+              );
+            };
+
+            (r?.players || []).forEach((pp) => {
+              if (!isAiPlayer(pp)) return;
+              const key = String(pp?.id || pp?.name || '');
+              if (!key) return;
+              const c = cfg[key];
+              if (!c) return;
+
+              // color
+              if (typeof pp?.colorIndex !== 'number' && typeof c?.colorIndex === 'number') {
+                trySetColor(pp?.id || pp?.name, c.colorIndex);
+              }
+
+              // roles
+              if (r?.mode === 'DUAL') {
+                const cur1 = typeof pp?.roleIndex1 === 'number' ? pp.roleIndex1 : (Array.isArray(pp?.roles) ? pp.roles[0] : undefined);
+                const cur2 = typeof pp?.roleIndex2 === 'number' ? pp.roleIndex2 : (Array.isArray(pp?.roles) ? pp.roles[1] : undefined);
+                if (typeof cur1 !== 'number' && typeof c?.role1 === 'number') trySetRole(pp?.id || pp?.name, c.role1, 1);
+                if (typeof cur2 !== 'number' && typeof c?.role2 === 'number') trySetRole(pp?.id || pp?.name, c.role2, 2);
+              } else {
+                const cur = typeof pp?.roleIndex === 'number' ? pp.roleIndex : (Array.isArray(pp?.roles) ? pp.roles[0] : undefined);
+                if (typeof cur !== 'number' && typeof c?.role1 === 'number') trySetRole(pp?.id || pp?.name, c.role1, 1);
+              }
+            });
+          } catch (e) {}
         }
+
+}
 
         // 依序嘗試多個事件名稱（避免你後端事件名還沒定案）
         function emitTry(eventNames, payload, cb, timeoutMs = 700) {
@@ -5541,12 +5697,7 @@ function createRoom(mode) {
                         e(
                           'div',
                           { style: { minWidth: 0 } },
-                          e(
-                            'div',
-                            { className: 'playerName' },
-                            p?.name || 'Player',
-                            ai ? e('span', { className: 'badge aiBadge', style: { marginLeft: 8 } }, 'AI') : null
-                          ),
+                          e('div', { className: 'playerName' }, e('span', { className: 'playerNameText' }, p?.name || 'Player'), ai ? e('span', { className: 'badge aiBadge' }, 'AI') : null),
                           e('div', { className: 'playerMeta' }, roleText)
                         )
                       ),
