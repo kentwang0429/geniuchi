@@ -4708,30 +4708,76 @@ function createRoom(mode) {
               ? { roomId: room.id, roleIndex, slot: pickingSlot }
               : { roomId: room.id, roleIndex };
 
-          // ✅ 手機：先確保該角色語音已載入，再送出確認並立即播放（避免慢半拍）
+          // ✅ 手機：確認角色時「先載入語音 → 播放成功後立刻關遮罩」，並用 one-shot 音效避免在切回房間時被中斷
           if (isCoarse) {
             try { setLoadingPhase('ROLE_CONFIRM'); } catch (e) {}
 
-            // safety auto-close (network stall)
+            // safety auto-close (stall)
             try {
               setTimeout(() => {
                 if (loadingPhaseRef.current === 'ROLE_CONFIRM') setLoadingPhase(null);
               }, 4500);
             } catch (e) {}
 
-            try {
-              const voiceSrc = AUDIO_ASSETS?.voice_role?.[roleIndex];
-              if (voiceSrc) await preloadAudios([voiceSrc], { timeoutMs: 2600 });
-            } catch (e) {}
+            (async () => {
+              let voiceSrc = null;
+              try { voiceSrc = AUDIO_ASSETS?.voice_role?.[roleIndex] || null; } catch (e) {}
 
-            try { audioRef.current?.playRoleVoice(roleIndex); } catch (e) {}
+              // 1) preload voice (best-effort)
+              try {
+                if (voiceSrc) await preloadAudios([voiceSrc], { timeoutMs: 2600 });
+              } catch (e) {}
 
-            socket.emit('pickRole', payload, (res) => {
-              if (res?.ok) setRoom(res.room);
-              else if (res?.message) alert(res.message);
+              // 2) play one-shot voice (not AudioMgr.voice) so it won't be paused by view switching
+              try {
+                const am = audioRef.current;
+                if (voiceSrc && am && !am.sfxMuted) {
+                  const vv = clamp((am.vol?.voice || 0.95) * 1.25, 0, 1);
+                  const s = String(voiceSrc);
+                  const url = /^https?:\/\//.test(s) ? s : s.startsWith('/') ? s : `/${s}`;
+
+                  const a = new Audio(url);
+                  a.preload = 'auto';
+                  a.loop = false;
+                  try { a.__g_kind = 'voice_oneshot'; } catch (e) {}
+                  try { a.__g_baseVol = vv; } catch (e) {}
+                  try {
+                    const pool = (window.__GENIUCHI_AUDIO_POOL = window.__GENIUCHI_AUDIO_POOL || []);
+                    pool.push(a);
+                  } catch (e) {}
+
+                  // ensure ready enough so play() starts promptly
+                  try {
+                    await new Promise((resolve) => {
+                      let done = false;
+                      const fin = () => {
+                        if (done) return;
+                        done = true;
+                        resolve();
+                      };
+                      try { a.addEventListener('canplaythrough', fin, { once: true }); } catch (e) {}
+                      try { a.addEventListener('loadeddata', fin, { once: true }); } catch (e) {}
+                      try { a.addEventListener('error', fin, { once: true }); } catch (e) {}
+                      setTimeout(fin, 1200);
+                      try { a.load(); } catch (e) {}
+                    });
+                  } catch (e) {}
+
+                  try { a.volume = vv; } catch (e) {}
+                  try { await a.play(); } catch (e) {}
+                }
+              } catch (e) {}
+
+              // 3) close curtain right after starting voice, and go back to room
               try { if (loadingPhaseRef.current === 'ROLE_CONFIRM') setLoadingPhase(null); } catch (e) {}
-              setView('ROOM');
-            });
+              try { setView('ROOM'); } catch (e) {}
+
+              // 4) send role pick (room updates on ack)
+              socket.emit('pickRole', payload, (res) => {
+                if (res?.ok) setRoom(res.room);
+                else if (res?.message) alert(res.message);
+              });
+            })();
 
             return;
           }
@@ -6867,7 +6913,7 @@ function createRoom(mode) {
                           // 即使解鎖失敗，也不阻擋確定流程
                         }
                       }
-                      am.playRoleVoice(current);
+                      // (mobile) voice will be played after preload in confirmRole()
                     }
                   } catch (e) {}
                   onConfirm(current);
