@@ -2534,8 +2534,10 @@
           const a = new Audio(url);
           a.preload = 'auto';
           a.loop = !!loop;
-          a.volume = clamp(volume, 0, 1);
-          try {
+          const baseVol = clamp(volume, 0, 1);
+          try { a.__g_baseVol = baseVol; } catch (e) {}
+          a.volume = kind === 'bgm' ? (this.bgmMuted ? 0 : baseVol) : baseVol;
+try {
             a.__g_kind = kind;
           } catch (e) {}
           try {
@@ -2596,8 +2598,7 @@
 
         async _safePlay(a) {
           if (!a) return false;
-          if (this.bgmMuted) return false;
-          if (this._destroyed) {
+if (this._destroyed) {
             try {
               a.pause();
               a.currentTime = 0;
@@ -2658,7 +2659,7 @@
           this.bgmKind = null;
         }
 
-        destroy() {
+                destroy() {
           this._destroyed = true;
           try { this.stopAllBgm(); } catch (e) {}
           try {
@@ -2667,6 +2668,7 @@
               this.voice.currentTime = 0;
             }
           } catch (e) {}
+
           // ✅ 最終保險：停掉全域音池裡所有 loop / bgm（避免手機疊音）
           try {
             const pool = window.__GENIUCHI_AUDIO_POOL || [];
@@ -2674,55 +2676,73 @@
               if (!a) return;
               const k = a.__g_kind;
               if (k === 'bgm' || a.loop) {
-                try {
-                  a.pause();
-                  a.currentTime = 0;
-                } catch (e) {}
+                try { a.pause(); } catch (e) {}
+                try { a.currentTime = 0; } catch (e) {}
               }
             });
           } catch (e) {}
         }
 
         setBgmMuted(m) {
-          this.bgmMuted = !!m;
+          const next = !!m;
+          if (this.bgmMuted === next) return;
+          this.bgmMuted = next;
 
-          // ✅ 使用者手動關/開 BGM：關閉時「只暫停不歸零」，再次開啟會從原本時間續播
-          if (this.bgmMuted) {
-            try {
-              if (this.bgm) this.bgm.pause();
-            } catch (e) {}
-            try {
-              if (this.battleLoop) this.battleLoop.pause();
-            } catch (e) {}
+          const now = Date.now();
 
-            // ✅ 同步暫停全域音池裡所有 BGM/loop（防止手機疊音）
+          if (next) {
+            // ✅ BGM OFF：不暫停，只把音量降到 0（音樂照常跑時間）
+            this._bgmMuteAt = now;
+
+            // 把所有 BGM/loop 音量降到 0，但不要 pause（保留進度）
             try {
               const pool = window.__GENIUCHI_AUDIO_POOL || [];
               pool.forEach((a) => {
                 if (!a) return;
                 const k = a.__g_kind;
                 if (k === 'bgm' || a.loop) {
-                  try { a.pause(); } catch (e) {}
+                  try { a.volume = 0; } catch (e) {}
                 }
               });
             } catch (e) {}
             return;
           }
 
-          // ✅ 開啟：若原本就有同一首 BGM 被暫停，直接續播（不重頭）
+          // ✅ BGM ON：恢復音量；若瀏覽器在 OFF 期間把音訊暫停了，嘗試用時間差補回進度
+          const elapsed = this._bgmMuteAt ? (now - this._bgmMuteAt) / 1000 : 0;
+          this._bgmMuteAt = 0;
+
+          const restoreVol = (a) => {
+            const base = a?.__g_baseVol ?? this.vol?.bgm ?? 0.35;
+            try { a.volume = clamp(base, 0, 1); } catch (e) {}
+            if (elapsed > 0) {
+              try {
+                const dur = a.duration;
+                if (a.paused && dur && isFinite(dur) && dur > 0) {
+                  let t = a.currentTime + elapsed;
+                  if (a.loop) t = t % dur;
+                  else t = Math.min(t, Math.max(0, dur - 0.05));
+                  a.currentTime = t;
+                }
+              } catch (e) {}
+            }
+          };
+
           try {
-            if (this.bgm && this.bgmKind === this._wantBgm && this.bgm.paused) {
-              this._safePlay(this.bgm);
-              return;
-            }
-            if (this.bgmKind === 'battle' && this._wantBgm === 'battle' && this.battleLoop && this.battleLoop.paused && !this.battleLoop.ended) {
-              this.bgm = this.battleLoop;
-              this._safePlay(this.battleLoop);
-              return;
-            }
+            // 先把目前已知的 BGM 元件恢復
+            if (this.bgm) restoreVol(this.bgm);
+            if (this.battleLoop) restoreVol(this.battleLoop);
+
+            // 再把全域音池內的 BGM/loop 一併恢復音量（但不強制全都播放）
+            const pool = window.__GENIUCHI_AUDIO_POOL || [];
+            pool.forEach((a) => {
+              if (!a) return;
+              const k = a.__g_kind;
+              if (k === 'bgm' || a.loop) restoreVol(a);
+            });
           } catch (e) {}
 
-          // ✅ 若沒有可續播的，就照原本邏輯選擇應播放的 BGM
+          // ✅ 若目前沒有在播（或被瀏覽器暫停），就照原本邏輯選擇應播放的 BGM
           this.resumeWantedBgm();
         }
 
@@ -2739,8 +2759,7 @@
         }
 
         async resumeWantedBgm() {
-          if (this.bgmMuted) return;
-          if (!this.unlocked) {
+if (!this.unlocked) {
             const ok = await this.unlock();
             if (!ok) return;
           }
@@ -2751,9 +2770,7 @@
 
         async startLobby() {
           this._wantBgm = 'lobby';
-          if (this.bgmMuted) return;
-
-          if (this.bgmKind === 'lobby' && this.bgm) {
+if (this.bgmKind === 'lobby' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
             return;
           }
@@ -2770,9 +2787,7 @@
 
         async startBattle() {
           this._wantBgm = 'battle';
-          if (this.bgmMuted) return;
-
-          if (this.bgmKind === 'battle' && this.bgm) {
+if (this.bgmKind === 'battle' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
             return;
           }
@@ -2797,8 +2812,7 @@
           this.battleLoop = loop;
 
           intro.addEventListener('ended', async () => {
-            if (this.bgmKind !== 'battle' || this.bgmMuted) return;
-            this.bgm = loop;
+            if (this.bgmKind !== 'battle') return;this.bgm = loop;
             await this._safePlay(loop);
           });
 
@@ -2812,8 +2826,6 @@
           this.playOnce(AUDIO_ASSETS.sfx_victory, this.vol.sfx);
 
           // ✅ 勝利結算 BGM（會尊重 BGM 靜音）
-          if (this.bgmMuted) return;
-
           if (this.bgmKind === 'victory' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
             return;
@@ -3910,9 +3922,8 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         React.useEffect(() => {
           const am = audioRef.current;
           if (!am) return;
-          if (!am.unlocked || bgmMuted) return;
-
-          if (result) {
+          if (!am.unlocked) return;
+if (result) {
             am.startVictory();
             return;
           }
@@ -6085,6 +6096,9 @@ function createRoom(mode) {
 
         const snapPxRef = React.useRef(260);
 
+
+        const isCoarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
         React.useEffect(() => {
           const prevOverflow = document.body.style.overflow;
           document.body.style.overflow = 'hidden';
@@ -6109,6 +6123,7 @@ function createRoom(mode) {
         }, []);
 
         React.useEffect(() => {
+          if (isCoarse) return;
           let cancelled = false;
           (async () => {
             try {
@@ -6128,7 +6143,7 @@ function createRoom(mode) {
           return () => {
             cancelled = true;
           };
-        }, [current, audioRef, audio]);
+        }, [current, audioRef, audio, isCoarse]);
 
         function scheduleDragUpdate(px) {
           dragPxRef.current = px;
@@ -6425,14 +6440,27 @@ function createRoom(mode) {
               {
                 className: 'confirm',
                 disabled: blocked !== null && current === blocked,
-                onClick: () => {
+                onClick: async () => {
                   audio?.uiClick?.();
                   if (blocked !== null && current === blocked) {
                     alert('同一玩家的 角色1 / 角色2 不能重複');
                     return;
                   }
+                  // ✅ Mobile：只有「確定角色」那一刻才播語音（滑動中不播，避免時有時無）
+                  try {
+                    const am = audioRef?.current || audio;
+                    if (am && isCoarse) {
+                      if (!am.unlocked) {
+                        const ok = await am.unlock();
+                        if (!ok) {
+                          // 即使解鎖失敗，也不阻擋確定流程
+                        }
+                      }
+                      am.playRoleVoice(current);
+                    }
+                  } catch (e) {}
                   onConfirm(current);
-                },
+},
               },
               room?.mode === 'DUAL' ? `確定為 角色${slot}` : '確定角色'
             )
