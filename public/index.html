@@ -123,6 +123,22 @@
         gap: 10px;
       }
 
+      /* ✅ Desktop in-game: top info bar fixed, avoid overlapping left/right panels when user scrolls */
+      .appRoot.inGameDesktop .topBar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 120;
+        background: rgba(11, 15, 25, 0.78);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+      .appRoot.inGameDesktop .screen {
+        padding-top: 74px;
+      }
+
+
       .brand {
         display: flex;
         flex-direction: column;
@@ -2669,10 +2685,44 @@
 
         setBgmMuted(m) {
           this.bgmMuted = !!m;
+
+          // ✅ 使用者手動關/開 BGM：關閉時「只暫停不歸零」，再次開啟會從原本時間續播
           if (this.bgmMuted) {
-            this.stopAllBgm();
+            try {
+              if (this.bgm) this.bgm.pause();
+            } catch (e) {}
+            try {
+              if (this.battleLoop) this.battleLoop.pause();
+            } catch (e) {}
+
+            // ✅ 同步暫停全域音池裡所有 BGM/loop（防止手機疊音）
+            try {
+              const pool = window.__GENIUCHI_AUDIO_POOL || [];
+              pool.forEach((a) => {
+                if (!a) return;
+                const k = a.__g_kind;
+                if (k === 'bgm' || a.loop) {
+                  try { a.pause(); } catch (e) {}
+                }
+              });
+            } catch (e) {}
             return;
           }
+
+          // ✅ 開啟：若原本就有同一首 BGM 被暫停，直接續播（不重頭）
+          try {
+            if (this.bgm && this.bgmKind === this._wantBgm && this.bgm.paused) {
+              this._safePlay(this.bgm);
+              return;
+            }
+            if (this.bgmKind === 'battle' && this._wantBgm === 'battle' && this.battleLoop && this.battleLoop.paused && !this.battleLoop.ended) {
+              this.bgm = this.battleLoop;
+              this._safePlay(this.battleLoop);
+              return;
+            }
+          } catch (e) {}
+
+          // ✅ 若沒有可續播的，就照原本邏輯選擇應播放的 BGM
           this.resumeWantedBgm();
         }
 
@@ -3593,14 +3643,10 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
           if (!am) return;
           const ok = await ensureUnlocked();
           if (!ok) return;
+
           const next = !bgmMuted;
           setBgmMuted(next);
           am.setBgmMuted(next);
-          if (!next) {
-            if (resultRef.current) am.startVictory();
-            else if (viewRef.current === 'GAME' && roomRef.current?.status === 'PLAYING') am.startBattle();
-            else am.startLobby();
-          }
         }
 
         async function toggleSfx() {
@@ -5201,7 +5247,7 @@ function createRoom(mode) {
 
         // ======= UI =======
         const inRoom = !!room?.id;
-        const rootClass = 'appRoot' + (isGameMobile ? ' isGameMobile' : '');
+        const rootClass = 'appRoot' + (isGameMobile ? ' isGameMobile' : '') + (view === 'GAME' && !isGameMobile ? ' inGameDesktop' : '');
 
         // ✅ 悔棋條件：巴特(1) / 羅根(3)，且 placedThisTurn===1（第二步前）
         // ✅ 改用 turnMeta（因為 placed event 不會更新 room.players）
@@ -6063,11 +6109,26 @@ function createRoom(mode) {
         }, []);
 
         React.useEffect(() => {
-          try {
-            const am = audioRef?.current || audio;
-            am?.playRoleVoice(current);
-          } catch (e) {}
-        }, [current, audioRef]);
+          let cancelled = false;
+          (async () => {
+            try {
+              const am = audioRef?.current || audio;
+              if (!am) return;
+
+              // ✅ 手機：剛進入選角時，會在「點擊」後進來這個 effect，這裡嘗試解鎖並播放角色語音
+              if (!am.unlocked) {
+                const ok = await am.unlock();
+                if (!ok) return;
+              }
+              if (cancelled) return;
+
+              am.playRoleVoice(current);
+            } catch (e) {}
+          })();
+          return () => {
+            cancelled = true;
+          };
+        }, [current, audioRef, audio]);
 
         function scheduleDragUpdate(px) {
           dragPxRef.current = px;
