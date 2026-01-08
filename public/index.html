@@ -2707,8 +2707,10 @@ try {
           this.bgmKind = null;
         }
 
-                destroy() {
+        destroy() {
           this._destroyed = true;
+          // ✅ cancel any pending async startLobby/startBattle/startVictory
+          try { this._bgmToken = (this._bgmToken || 0) + 1; } catch (e) {}
           try { this.stopAllBgm(); } catch (e) {}
           try {
             if (this.voice) {
@@ -2730,6 +2732,7 @@ try {
             });
           } catch (e) {}
         }
+
 
         setBgmMuted(m) {
           const next = !!m;
@@ -2820,12 +2823,19 @@ if (!this.unlocked) {
 
         async startLobby() {
           this._wantBgm = 'lobby';
-if (this.bgmKind === 'lobby' && this.bgm) {
+
+          // ✅ 防止多個 startLobby 同時進來造成手機疊音（以 token 只保留最後一次）
+          const token = (this._bgmToken = (this._bgmToken || 0) + 1);
+
+          if (this.bgmKind === 'lobby' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
             return;
           }
 
           this.stopAllBgm();
+
+          // token 已被更新（代表有更新的 startX 進來），直接放棄
+          if (token !== this._bgmToken) return;
 
           const a = this._makeAudio(AUDIO_ASSETS.bgm_lobby, { loop: true, volume: this.vol.bgm }, 'bgm');
 
@@ -2833,17 +2843,29 @@ if (this.bgmKind === 'lobby' && this.bgm) {
           this.bgm = a;
 
           await this._safePlay(a);
+
+          // 若播放中途被更新的 startX 覆蓋，確保不留下在播的舊音軌
+          if (token !== this._bgmToken) {
+            try { a.pause(); } catch (e) {}
+            try { a.currentTime = 0; } catch (e) {}
+          }
         }
 
         async startBattle() {
           this._wantBgm = 'battle';
-if (this.bgmKind === 'battle' && this.bgm) {
+
+          // ✅ 防止多個 startBattle 同時進來造成手機疊音
+          const token = (this._bgmToken = (this._bgmToken || 0) + 1);
+
+          if (this.bgmKind === 'battle' && this.bgm) {
             if (this.bgm.paused) await this._safePlay(this.bgm);
             return;
           }
 
           this.stopAllBgm();
           this.bgmKind = 'battle';
+
+          if (token !== this._bgmToken) return;
 
           const introSrc = AUDIO_ASSETS.bgm_battle_intro;
           const loopSrc = AUDIO_ASSETS.bgm_battle_loop;
@@ -2852,6 +2874,10 @@ if (this.bgmKind === 'battle' && this.bgm) {
             const loop = this._makeAudio(loopSrc, { loop: true, volume: this.vol.bgm }, 'bgm');
             this.bgm = loop;
             await this._safePlay(loop);
+            if (token !== this._bgmToken) {
+              try { loop.pause(); } catch (e) {}
+              try { loop.currentTime = 0; } catch (e) {}
+            }
             return;
           }
 
@@ -2862,15 +2888,32 @@ if (this.bgmKind === 'battle' && this.bgm) {
           this.battleLoop = loop;
 
           intro.addEventListener('ended', async () => {
-            if (this.bgmKind !== 'battle') return;this.bgm = loop;
+            // ✅ 只有「當下 token」+「仍在 battle」才接 loop
+            if (token !== this._bgmToken) return;
+            if (this.bgmKind !== 'battle') return;
+            this.bgm = loop;
             await this._safePlay(loop);
+            if (token !== this._bgmToken) {
+              try { loop.pause(); } catch (e) {}
+              try { loop.currentTime = 0; } catch (e) {}
+            }
           });
 
           await this._safePlay(intro);
+
+          if (token !== this._bgmToken) {
+            try { intro.pause(); } catch (e) {}
+            try { intro.currentTime = 0; } catch (e) {}
+            try { loop.pause(); } catch (e) {}
+            try { loop.currentTime = 0; } catch (e) {}
+          }
         }
 
         async startVictory() {
           this._wantBgm = 'victory';
+
+          // ✅ 防止多個 startVictory 同時進來造成手機疊音
+          const token = (this._bgmToken = (this._bgmToken || 0) + 1);
 
           // ✅ 勝利音效（SFX，會尊重 SFX 靜音）
           this.playOnce(AUDIO_ASSETS.sfx_victory, this.vol.sfx);
@@ -2883,13 +2926,24 @@ if (this.bgmKind === 'battle' && this.bgm) {
 
           this.stopAllBgm();
           this.bgmKind = 'victory';
-          this.bgm = this._makeAudio(AUDIO_ASSETS.bgm_victory || AUDIO_ASSETS.sfx_victory, {
+
+          if (token !== this._bgmToken) return;
+
+          const a = this._makeAudio(AUDIO_ASSETS.bgm_victory || AUDIO_ASSETS.sfx_victory, {
             loop: true,
             volume: this.vol.bgm,
-          });
+          }, 'bgm');
 
-          await this._safePlay(this.bgm);
+          this.bgm = a;
+
+          await this._safePlay(a);
+
+          if (token !== this._bgmToken) {
+            try { a.pause(); } catch (e) {}
+            try { a.currentTime = 0; } catch (e) {}
+          }
         }
+
 
 
         stopVictory() {
@@ -3283,7 +3337,7 @@ function App() {
         }, [view]);
 
         // ✅ Loading overlay + asset preloading (fix first-open UI/audio lag)
-        // loadingPhase: null | 'ROOM' | 'GAME'
+        // loadingPhase: null | 'ROOM' | 'GAME' | 'ROLE_CONFIRM'
         const [loadingPhase, setLoadingPhase] = React.useState(null);
         const loadingPhaseRef = React.useRef(null);
         React.useEffect(() => {
@@ -3563,6 +3617,7 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
 
         // ✅ AI 自動準備：結算後自動把 AI 的顏色/角色補回來（避免 restartGame 後被清空）
         const aiAutoCfgRef = React.useRef(null);
+        const aiReadyCooldownRef = React.useRef({});
 
         const roomRef = React.useRef(null);
 
@@ -3850,6 +3905,8 @@ async function toggleSfx() {
 
               // ✅ 若正在「載入房間中」，一旦回到 Lobby 就可以關閉遮罩（保險）
               if (loadingPhaseRef.current === 'ROOM') setLoadingPhase(null);
+
+              try { autoReadyAiIfPossible(r); } catch (e) {}
             } else if (r?.status === 'ENDED') {
               setView('GAME');
             }
@@ -4273,6 +4330,8 @@ if (result) {
           // ✅ 結算回到房間後，若 AI 被清空（顏色/角色），自動補回
           try { autoPrepareAiIfNeeded(roomRef.current); } catch (e) {}
 
+          try { autoReadyAiIfPossible(roomRef.current); } catch (e) {}
+
           setView('ROOM');
         }
 
@@ -4486,7 +4545,7 @@ function createRoom(mode) {
         }
 
 
-        function confirmRole(roleIndex) {
+        async function confirmRole(roleIndex) {
           audioRef.current?.uiClick();
           if (!room) return;
 
@@ -4544,16 +4603,43 @@ function createRoom(mode) {
             setSelectedRole2(null);
           }
 
-          socket.emit(
-            'pickRole',
+          const payload =
             room?.mode === 'DUAL'
               ? { roomId: room.id, roleIndex, slot: pickingSlot }
-              : { roomId: room.id, roleIndex },
-            (res) => {
-              if (res.ok) setRoom(res.room);
+              : { roomId: room.id, roleIndex };
+
+          // ✅ 手機：先確保該角色語音已載入，再送出確認並立即播放（避免慢半拍）
+          if (isCoarse) {
+            try { setLoadingPhase('ROLE_CONFIRM'); } catch (e) {}
+
+            // safety auto-close (network stall)
+            try {
+              setTimeout(() => {
+                if (loadingPhaseRef.current === 'ROLE_CONFIRM') setLoadingPhase(null);
+              }, 4500);
+            } catch (e) {}
+
+            try {
+              const voiceSrc = AUDIO_ASSETS?.voice_role?.[roleIndex];
+              if (voiceSrc) await preloadAudios([voiceSrc], { timeoutMs: 2600 });
+            } catch (e) {}
+
+            try { audioRef.current?.playRoleVoice(roleIndex); } catch (e) {}
+
+            socket.emit('pickRole', payload, (res) => {
+              if (res?.ok) setRoom(res.room);
               else if (res?.message) alert(res.message);
-            }
-          );
+              try { if (loadingPhaseRef.current === 'ROLE_CONFIRM') setLoadingPhase(null); } catch (e) {}
+              setView('ROOM');
+            });
+
+            return;
+          }
+
+          socket.emit('pickRole', payload, (res) => {
+            if (res?.ok) setRoom(res.room);
+            else if (res?.message) alert(res.message);
+          });
 
           setView('ROOM');
         }
@@ -4596,6 +4682,7 @@ function createRoom(mode) {
           if (p.isAI || p.isAi || p.ai || p.bot) return true;
           const n = String(p.name || '').trim().toLowerCase();
           return n.startsWith('ai') || n.startsWith('bot') || n.includes('[ai]') || n.includes('(ai)');
+        }
         
         // ✅ AI 自動準備：若 restartGame 後 AI 的顏色/角色被清空，嘗試自動補回（不彈警告）
         function autoPrepareAiIfNeeded(roomNow) {
@@ -4654,7 +4741,80 @@ function createRoom(mode) {
           } catch (e) {}
         }
 
-}
+        // ✅ AI 自動準備（ready）：只要 AI 已選好顏色與角色，就自動準備
+        // - 只允許房主送出（避免多端重複）
+        function autoReadyAiIfPossible(roomNow) {
+          try {
+            const r = roomNow || roomRef.current;
+            if (!r?.id) return;
+            if (r?.status !== 'LOBBY') return;
+            if (!socket) return;
+            if (r?.hostId !== socket?.id) return;
+
+            const nowTs = Date.now();
+
+            const getRole1 = (pp) => {
+              if (typeof pp?.roleIndex1 === 'number') return pp.roleIndex1;
+              if (typeof pp?.roleIndex === 'number') return pp.roleIndex;
+              if (Array.isArray(pp?.roles)) return pp.roles[0];
+              return undefined;
+            };
+            const getRole2 = (pp) => {
+              if (typeof pp?.roleIndex2 === 'number') return pp.roleIndex2;
+              if (Array.isArray(pp?.roles)) return pp.roles[1];
+              return undefined;
+            };
+
+            (r?.players || []).forEach((pp) => {
+              if (!isAiPlayer(pp)) return;
+
+              const target = pp?.id || pp?.name;
+              if (!target) return;
+
+              // 已 ready 就不用再送
+              if (pp?.ready) return;
+
+              // ✅ 限制頻率：同一個 AI 1.2 秒內最多嘗試一次（避免後端不支援時狂刷）
+              const cd = aiReadyCooldownRef.current || {};
+              const last = cd[String(target)] || 0;
+              if (nowTs - last < 1200) return;
+              cd[String(target)] = nowTs;
+              aiReadyCooldownRef.current = cd;
+
+              const colorOk = typeof pp?.colorIndex === 'number';
+
+              let roleOk = false;
+              if (r?.mode === 'DUAL') {
+                const a = getRole1(pp);
+                const b = getRole2(pp);
+                roleOk = typeof a === 'number' && typeof b === 'number';
+              } else {
+                const a = getRole1(pp);
+                roleOk = typeof a === 'number';
+              }
+
+              if (!colorOk || !roleOk) return;
+
+              emitTry(
+                [
+                  'setAiReady',
+                  'setAIReady',
+                  'aiSetReady',
+                  'aiReady',
+                  'readyAi',
+                  'readyUpFor',
+                  'readyUpByHost',
+                  'readyUpTarget',
+                  'readyUp',
+                ],
+                { roomId: r.id, target, ready: true, isReady: true, value: true, asHost: true },
+                () => {},
+                600
+              );
+            });
+          } catch (e) {}
+        }
+
 
         // 依序嘗試多個事件名稱（避免你後端事件名還沒定案）
         function emitTry(eventNames, payload, cb, timeoutMs = 700) {
@@ -5460,7 +5620,7 @@ function createRoom(mode) {
                   'div',
                   { className: 'loadingBox' },
                   e('div', { className: 'spinner' }),
-                  e('div', { className: 'loadingTitle' }, loadingPhase === 'ROOM' ? (inRoom ? '載入角色中' : '載入房間中') : '載入棋局中'),
+                  e('div', { className: 'loadingTitle' }, loadingPhase === 'ROLE_CONFIRM' ? '確認角色中' : (loadingPhase === 'ROOM' ? (inRoom ? '載入角色中' : '載入房間中') : '載入棋局中')),
                   e('div', { className: 'loadingSub' }, '請稍候…')
                 )
               )
