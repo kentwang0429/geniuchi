@@ -4286,6 +4286,10 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
 
         // ✅ V24 prevent duplicate Jeice FX（place callback + roomUpdated）
         const lastJeiceSigRef = React.useRef({ sig: null, t: 0 });
+        // ✅ V36 prevent duplicate Recoome/Burter FX (local callback + server broadcast)
+        const lastRecoomeSigRef = React.useRef({ sig: null, t: 0 });
+        const lastBurterSigRef = React.useRef({ sig: null, t: 0 });
+
 
         // ✅ V25 Burter first-step position (per actor token)
         const burterFirstRef = React.useRef({});
@@ -4369,6 +4373,16 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         function startRecoomeFx(at) {
           // Recoome smash: show card 1.5s, cracks appear immediately and fade out
           if (!at) return;
+
+          // ✅ V36: dedupe (some updates arrive via both local callback and server broadcast)
+          try {
+            const sig = 'r:' + String(at.x) + ',' + String(at.y);
+            const last = lastRecoomeSigRef.current || {};
+            const now = Date.now();
+            if (last.sig === sig && now - (last.t || 0) < 1400) return;
+            lastRecoomeSigRef.current = { sig, t: now };
+          } catch (e) {}
+
           showSkillCard(2);
           // allow coexist with other FX
           pushOverlayFx({ type: 'recoome_spider', center: at, t: Date.now() }, 5200);
@@ -4407,6 +4421,15 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         function startBurterDashFx(from, to) {
           // ✅ V33: 巴特第二子確定後 → 先顯示淡化技能卡(1.5s) → 再射出藍色光束
           if (!from || !to) return;
+
+          // ✅ V36: dedupe (some updates arrive via both local callback and server broadcast)
+          try {
+            const sig = 'b:' + String(from.x) + ',' + String(from.y) + '->' + String(to.x) + ',' + String(to.y);
+            const last = lastBurterSigRef.current || {};
+            const now = Date.now();
+            if (last.sig === sig && now - (last.t || 0) < 1600) return;
+            lastBurterSigRef.current = { sig, t: now };
+          } catch (e) {}
 
           // 1) 技能卡 overlay（與其他角色一致：1.5s fade）
           showSkillCard(1);
@@ -4477,6 +4500,9 @@ function startLoganImpactFx(at) {
         const aiReadyCooldownRef = React.useRef({});
 
         const roomRef = React.useRef(null);
+        // ✅ Keep last SERVER room/board for FX diff (avoid optimistic local updates swallowing diffs)
+        const serverRoomRef = React.useRef(null);
+        const serverBoardRef = React.useRef([]);
 
         // ✅ Jeice auto-start guard
         const jeiceAutoKeyRef = React.useRef(null);
@@ -4717,11 +4743,14 @@ async function toggleSfx() {
           });
 
           s.on('roomUpdated', (r) => {
-            const prevRoom = roomRef.current;
-            const prevBoard = prevRoom?.board || null;
+            // ✅ FX diff must compare against LAST SERVER room/board, not optimistic local state
+            const prevRoom = serverRoomRef.current || roomRef.current;
+            const prevBoard = (prevRoom?.board || serverBoardRef.current || null);
 
             // 永遠先更新 ref（避免其他 callback 用到舊 room）
             roomRef.current = r;
+            serverRoomRef.current = r;
+            serverBoardRef.current = r?.board || [];
 
             // ✅ 結算期間：只暫存，不動 UI（避免狀態半套導致 render 掛掉）
             if (resultRef.current) {
@@ -4754,18 +4783,38 @@ async function toggleSfx() {
             try {
               const curView2 = viewRef.current;
               const nextBoard = r.board || [];
-              if (curView2 === 'GAME' && !resultRef.current && prevRoom && prevBoard && nextBoard) {
+              if (curView2 === 'GAME' && !resultRef.current && prevRoom && prevBoard && nextBoard && prevRoom?.id === r?.id) {
                 const actorIndex = typeof prevRoom?.turnIndex === 'number' ? prevRoom.turnIndex : null;
                 const actorSlot = prevRoom?.mode === 'DUAL' ? prevRoom.turnSlot || 1 : 1;
                 const actorPlayer = actorIndex !== null ? prevRoom?.players?.[actorIndex] : null;
                 const actorRoleIndex = typeof actorIndex === 'number' ? getPlayerRoleIndex(prevRoom, actorPlayer, actorSlot) : null;
                 const actorToken = typeof actorIndex === 'number' ? actorIndex * 2 + actorSlot : null;
 
-                const diffs = diffCells(prevBoard, nextBoard);
+                const diffs0 = diffCells(prevBoard, nextBoard);
+                let basePrevBoard = prevBoard;
+                let diffs = diffs0;
+
+                // ✅ 本端有 optimistic 會把 prevBoard 先更新成新盤面，導致自己看不到 FX（diff=0）
+                //    這裡用 optimisticRef.prevBoard 重新推一次 diff（僅限很近的更新，避免誤判）
+                try {
+                  const opt = optimisticRef.current;
+                  const now = Date.now();
+                  if (opt && opt.prevBoard && now - (opt.t || 0) < 1800) {
+                    if (!diffs0 || diffs0.length === 0) {
+                      const diffs2 = diffCells(opt.prevBoard, nextBoard);
+                      if (diffs2 && diffs2.length) {
+                        basePrevBoard = opt.prevBoard;
+                        diffs = diffs2;
+                      }
+                    }
+                    // 無論是否命中，都清掉，避免殘留造成下一次誤用
+                    optimisticRef.current = null;
+                  }
+                } catch (e) {}
 
                 // --- Jeice ---
                 if (actorRoleIndex === 5) {
-                  const inferred = inferJeiceFx(prevBoard, nextBoard);
+                  const inferred = inferJeiceFx(basePrevBoard, nextBoard);
                   if (inferred) {
                     const sig = jeiceSig(inferred);
                     const last = lastJeiceSigRef.current || {};
@@ -4783,7 +4832,7 @@ async function toggleSfx() {
 
                 // --- Ginyu swap (delay apply) ---
                 if (!delayedApply && actorRoleIndex === 0) {
-                  const swap = inferSwapFx(prevBoard, nextBoard);
+                  const swap = inferSwapFx(basePrevBoard, nextBoard);
                   if (swap) {
                     startGinyuSwapFx(swap);
                     delayApplyBoard(nextBoard, 2400);
@@ -4793,7 +4842,7 @@ async function toggleSfx() {
 
                 // --- Guldo move (delay apply) ---
                 if (!delayedApply && actorRoleIndex === 4) {
-                  const mv = inferMovedToken(prevBoard, nextBoard);
+                  const mv = inferMovedToken(basePrevBoard, nextBoard);
                   if (mv) {
                     startGuldoMoveFx(mv);
                     delayApplyBoard(nextBoard, 2400);
@@ -6455,6 +6504,40 @@ function createRoom(mode) {
           }
 
           // ===== 一般落子 =====
+          // ✅ V36: 本端也要看到巴特/力庫姆 FX（有些後端事件只 broadcast 給對手）
+          //   - Burter: 第二子確定後 → 技能卡 → 藍色光束
+          //   - Recoome: 技能卡 → 3x3 裂痕
+          let localFxAfterOk = null;
+          try {
+            const r0 = roomRef.current || room;
+            if (r0 && r0.status === 'PLAYING') {
+              const me0 = findMePlayer(r0, socket?.id, nameRef.current);
+              if (me0 && isMyTurnByIdOrName(r0, me0)) {
+                const slot = r0.mode === 'DUAL' ? (r0.turnSlot || 1) : 1;
+                const myIdx = (r0.players || []).findIndex(
+                  (p) => p.id === socket.id || (me0?.name && p.name === me0.name)
+                );
+                const roleIdx =
+                  r0.mode === 'DUAL'
+                    ? (slot === 1 ? me0.roleIndex1 : me0.roleIndex2)
+                    : me0.roleIndex;
+                const prevPT =
+                  typeof r0?.turnMeta?.placedThisTurn === 'number'
+                    ? r0.turnMeta.placedThisTurn
+                    : Number(me0?.placedThisTurn || 0);
+
+                if (roleIdx === 2) {
+                  localFxAfterOk = { type: 'recoome', at: { x, y } };
+                }
+                if (roleIdx === 1 && myIdx >= 0) {
+                  const key = String(myIdx) + ':' + String(slot);
+                  if (prevPT <= 0) localFxAfterOk = { type: 'burter_first', key, at: { x, y } };
+                  else localFxAfterOk = { type: 'burter_second', key, to: { x, y } };
+                }
+              }
+            }
+          } catch (e) {}
+
           let optimisticKey = null;
 
           if (OPTIMISTIC_PLACE) {
@@ -6476,7 +6559,7 @@ function createRoom(mode) {
                     b2[y][x] = token;
 
                     optimisticKey = `${r0.id}:${r0.roundCount || 1}:${r0.turnIndex}:${r0.turnSlot || 1}:${x},${y}`;
-                    optimisticRef.current = { key: optimisticKey, prevBoard: b0 };
+                    optimisticRef.current = { key: optimisticKey, prevBoard: b0, t: Date.now() };
 
                     // 更新 UI
                     if (roomRef.current) roomRef.current = { ...r0, board: b2 };
@@ -6501,7 +6584,21 @@ function createRoom(mode) {
               } catch (e) {}
 
               if (res?.message) alert(res.message);
+              return;
             }
+
+            // ✅ V36: 本端自己下的巴特/力庫姆，也要補跑一次 FX（避免只在對手端看到）
+            try {
+              if (localFxAfterOk?.type === 'recoome' && localFxAfterOk.at) {
+                startRecoomeFx(localFxAfterOk.at);
+              } else if (localFxAfterOk?.type === 'burter_first' && localFxAfterOk.key && localFxAfterOk.at) {
+                burterFirstRef.current[localFxAfterOk.key] = { x: localFxAfterOk.at.x, y: localFxAfterOk.at.y };
+              } else if (localFxAfterOk?.type === 'burter_second' && localFxAfterOk.key && localFxAfterOk.to) {
+                const first = burterFirstRef.current ? burterFirstRef.current[localFxAfterOk.key] : null;
+                if (first) startBurterDashFx(first, localFxAfterOk.to);
+                burterFirstRef.current[localFxAfterOk.key] = null;
+              }
+            } catch (e) {}
           });
 
         }
