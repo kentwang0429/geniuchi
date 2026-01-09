@@ -572,6 +572,7 @@
 
       /* ✅ 保證棋盤本體不被圓角/overflow裁切到格線 */
       .arenaStage .board{
+        position: relative;          /* ✅ FX layer anchor */
         border-radius: 0 !important;
         overflow: visible !important;
       }
@@ -679,6 +680,8 @@
 
       .boardGrid {
         display: grid;
+        position: relative;
+        z-index: 2;
       }
       .cell {
         width: var(--cell);
@@ -747,6 +750,7 @@
         position: absolute;
         inset: 0;
         pointer-events: none;
+        z-index: 4;                 /* ✅ above pieces */
       }
       .jeiceOrb {
         position: absolute;
@@ -873,7 +877,212 @@
         color: rgba(255, 255, 255, 0.78);
       }
 
-      /* ===== 選角：全螢幕（mobile viewport safe）===== */
+
+      /* ===== V25: Extra Board FX ===== */
+      .fx-glow { filter: drop-shadow(0 0 10px rgba(255,255,255,0.22)); }
+
+      .ginyuOrb {
+        position: absolute;
+        width: var(--piece);
+        height: var(--piece);
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, rgba(220,255,255,0.95), rgba(90,220,255,0.75) 45%, rgba(0,0,0,0) 72%);
+        filter: drop-shadow(0 0 12px rgba(90,220,255,0.55));
+        animation: jeiceMove 320ms cubic-bezier(0.15, 0.9, 0.25, 1) forwards;
+      }
+      .ginyuOrb::after {
+        content: '';
+        position: absolute;
+        inset: calc(var(--piece) * -0.45);
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(90,220,255,0.35), rgba(90,220,255,0));
+        animation: jeicePulse 280ms ease-out forwards;
+      }
+
+      .guldoOrb {
+        position: absolute;
+        width: var(--piece);
+        height: var(--piece);
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, rgba(230,255,210,0.95), rgba(120,255,120,0.72) 45%, rgba(0,0,0,0) 72%);
+        filter: drop-shadow(0 0 12px rgba(120,255,120,0.5));
+        animation: jeiceMove 320ms cubic-bezier(0.15, 0.9, 0.25, 1) forwards;
+      }
+      .guldoOrb::after {
+        content: '';
+        position: absolute;
+        inset: calc(var(--piece) * -0.45);
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(120,255,120,0.32), rgba(120,255,120,0));
+        animation: jeicePulse 280ms ease-out forwards;
+      }
+
+      .burterDash {
+        position: absolute;
+        height: 7px;
+        width: calc(var(--len, 0) * 1px);   /* ✅ FIX: give it length */
+        border-radius: 999px;
+        transform-origin: 0 50%;            /* start from 'from' cell */
+        z-index: 6;
+        background: linear-gradient(90deg, rgba(180,220,255,0), rgba(180,220,255,0.95), rgba(180,220,255,0));
+        filter: drop-shadow(0 0 12px rgba(180,220,255,0.55));
+        opacity: 0;
+        animation: burterDash 520ms ease-out forwards;
+      }
+      @keyframes burterDash {
+        0% { opacity: 0; transform: translate(0, -50%) rotate(var(--ang, 0deg)) scaleX(0.12); }
+        20% { opacity: 1; }
+        100% { opacity: 0; transform: translate(0, -50%) rotate(var(--ang, 0deg)) scaleX(1.0); }
+      }
+
+      .loganFog {
+        position: absolute;
+        border-radius: 14px;
+        z-index: 2;
+        background: radial-gradient(circle at 45% 40%, rgba(0,0,0,0.78), rgba(0,0,0,0.0) 74%);
+        filter: blur(5.2px) drop-shadow(0 0 14px rgba(0,0,0,0.28));
+        opacity: 0;
+        animation: loganFogFade 3000ms ease-out forwards;
+      }
+      .loganFog.strong {
+        background: radial-gradient(circle at 45% 40%, rgba(0,0,0,0.88), rgba(0,0,0,0.0) 76%);
+      }
+      @keyframes loganFogFade {
+        0% { opacity: 0; transform: scale(0.92); }
+        10% { opacity: 0.95; }
+        70% { opacity: 0.78; }
+        100% { opacity: 0; transform: scale(1.10); }
+      }
+
+.loganImpact {
+        position: absolute;
+        border-radius: 12px;
+        background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.75), rgba(255,255,255,0.0) 65%);
+        filter: drop-shadow(0 0 14px rgba(255,255,255,0.35));
+        opacity: 0;
+        animation: loganImpact 900ms ease-out forwards;
+      }
+      @keyframes loganImpact {
+        0% { opacity: 0; transform: scale(0.6); }
+        20% { opacity: 1; transform: scale(1.02); }
+        100% { opacity: 0; transform: scale(1.2); }
+      }
+
+      /* ===== V24: Skill Card FX Overlay ===== */
+      .skillCardFx {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* ✅ 更透明：不要擋住棋局 */
+        background: radial-gradient(circle at 50% 40%, rgba(0,0,0,0.06), rgba(0,0,0,0.18));
+        animation: skillCardFade 1500ms ease-out forwards;
+      }
+      .skillCardInner {
+        width: min(320px, 74vw);
+        aspect-ratio: 1024 / 1792;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 14px 44px rgba(0,0,0,0.32);
+        transform: translate3d(0, 6px, 0) scale(0.98);
+        background: rgba(255,255,255,0.03);
+        opacity: 0.88;
+      }
+      .skillCardImg {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .skillCardFallback {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 42px;
+        color: rgba(255,255,255,0.92);
+        letter-spacing: 2px;
+      }
+      @keyframes skillCardFade {
+        0%   { opacity: 0; transform: translate3d(0, 0, 0); }
+        12%  { opacity: 0.70; }
+        70%  { opacity: 0.55; }
+        100% { opacity: 0; }
+      }
+
+      /* ===== V32: Recoome Smash FX (Fixed Crack PNG 3x3, under pieces) ===== */
+      :root {
+        /* ✅ Put this PNG in: public/img/recoome_crack.png */
+        --recoome-crack-img: url('/img/recoome_crack.png');
+      }
+
+      /* ✅ under pieces, above board surface */
+      .fxUnderLayer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .recoomeCrack3 {
+        position: absolute;
+        pointer-events: none;
+        width: calc(var(--cell) * 3);
+        height: calc(var(--cell) * 3);
+        border-radius: 14px;
+        overflow: hidden;
+        background-image: var(--recoome-crack-img);
+        background-size: 100% 100%;
+        background-position: center;
+        background-repeat: no-repeat;
+        filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.35));
+        opacity: 0;
+        transform: scale(0.88);
+        animation: recoomeCrack3Fade 5s ease-out forwards;
+      }
+
+      @keyframes recoomeCrack3Fade {
+        0%   { opacity: 0;    transform: scale(0.72); }
+        8%   { opacity: 0.95; transform: scale(1.00); }
+        70%  { opacity: 0.88; transform: scale(1.00); }
+        100% { opacity: 0;    transform: scale(1.03); }
+      }
+
+      /* ===== Burter card fly ===== */
+      .skillCardFx.burterFlyLtr { animation: skillCardFlyLtr 900ms ease-out forwards; }
+      .skillCardFx.burterFlyRtl { animation: skillCardFlyRtl 900ms ease-out forwards; }
+      @keyframes skillCardFlyLtr {
+        0%   { opacity: 0; transform: translate3d(-34vw, 0, 0) scale(1); }
+        10%  { opacity: 0.80; transform: translate3d(-18vw, 0, 0) scale(1); }
+        65%  { opacity: 0.45; transform: translate3d(22vw, 0, 0) scale(1); }
+        100% { opacity: 0; transform: translate3d(60vw, 0, 0) scale(1); }
+      }
+      @keyframes skillCardFlyRtl {
+        0%   { opacity: 0; transform: translate3d(34vw, 0, 0) scale(1); }
+        10%  { opacity: 0.80; transform: translate3d(18vw, 0, 0) scale(1); }
+        65%  { opacity: 0.45; transform: translate3d(-22vw, 0, 0) scale(1); }
+        100% { opacity: 0; transform: translate3d(-60vw, 0, 0) scale(1); }
+      }
+
+      /* ===== Logan fog variants ===== */
+      .loganFog.strong {
+        background: radial-gradient(circle at 40% 35%, rgba(0,0,0,0.85), rgba(0,0,0,0.0) 72%);
+        filter: blur(1.0px);
+      }
+      .loganFog.green {
+        z-index: 3;
+        background: radial-gradient(circle at 45% 40%, rgba(0,255,170,0.62), rgba(0,255,170,0.0) 76%);
+        filter: blur(5.0px) drop-shadow(0 0 16px rgba(0,255,170,0.22));
+      }
+      .loganFog.green.strong {
+        background: radial-gradient(circle at 45% 40%, rgba(0,255,170,0.70), rgba(0,255,170,0.0) 78%);
+      }
+
+/* ===== 選角：全螢幕（mobile viewport safe）===== */
       .roleScreen {
         position: fixed;
         left: 0;
@@ -2313,6 +2522,178 @@
         return Array.isArray(b) ? b.map((row) => row.slice()) : [];
       }
 
+      // ===== V24 helpers: board diff inference (Jeice / Recoome) =====
+      function jeiceSig(fx) {
+        if (!fx || fx.type !== 'jeice') return '';
+        const a = (p) => (p ? `${p.x},${p.y}` : '-');
+        return `jeice:${a(fx.from)}>${a(fx.target)}>${a(fx.to)}`;
+      }
+
+      function buildTokenSet(board) {
+        const s = new Set();
+        if (!Array.isArray(board)) return s;
+        for (let y = 0; y < board.length; y++) {
+          const row = board[y] || [];
+          for (let x = 0; x < row.length; x++) {
+            const v = row[x];
+            if (v > 0) s.add(v);
+          }
+        }
+        return s;
+      }
+
+      function inferJeiceFx(prevBoard, nextBoard) {
+        if (!Array.isArray(prevBoard) || !Array.isArray(nextBoard)) return null;
+        const h = Math.min(prevBoard.length, nextBoard.length);
+        if (!h) return null;
+
+        const removed = [];
+        const added = [];
+
+        for (let y = 0; y < h; y++) {
+          const prow = prevBoard[y] || [];
+          const nrow = nextBoard[y] || [];
+          const w = Math.min(prow.length, nrow.length);
+          for (let x = 0; x < w; x++) {
+            const a = prow[x];
+            const b = nrow[x];
+            if (a === b) continue;
+
+            if (a > 0 && b === 0) removed.push({ x, y, v: a });
+            if (a === 0 && b > 0) added.push({ x, y, v: b });
+          }
+        }
+
+        // Jeice push: one token moves target -> to (same token value), plus one newly placed piece
+        let target = null;
+        let to = null;
+        let movedToken = null;
+
+        for (const r of removed) {
+          const m = added.find((p) => p.v === r.v);
+          if (m) {
+            target = { x: r.x, y: r.y };
+            to = { x: m.x, y: m.y };
+            movedToken = r.v;
+            break;
+          }
+        }
+
+        if (!target || !to || !movedToken) return null;
+
+        const fromCand = added.find((p) => p.v !== movedToken);
+        if (!fromCand) return null;
+
+        return { type: 'jeice', from: { x: fromCand.x, y: fromCand.y }, target, to };
+      }
+
+
+      function diffCells(prevBoard, nextBoard) {
+        if (!Array.isArray(prevBoard) || !Array.isArray(nextBoard)) return [];
+        const h = Math.min(prevBoard.length, nextBoard.length);
+        const out = [];
+        for (let y = 0; y < h; y++) {
+          const prow = prevBoard[y] || [];
+          const nrow = nextBoard[y] || [];
+          const w = Math.min(prow.length, nrow.length);
+          for (let x = 0; x < w; x++) {
+            const a = prow[x];
+            const b = nrow[x];
+            if (a !== b) out.push({ x, y, a, b });
+          }
+        }
+        return out;
+      }
+
+      function inferSwapFx(prevBoard, nextBoard) {
+        const diffs = diffCells(prevBoard, nextBoard);
+        for (let i = 0; i < diffs.length; i++) {
+          const p = diffs[i];
+          if (!(p.a > 0 && p.b > 0)) continue;
+          for (let j = i + 1; j < diffs.length; j++) {
+            const q = diffs[j];
+            if (q.a === p.b && q.b === p.a && q.a > 0 && q.b > 0) {
+              return { type: 'ginyu_swap', a: { x: p.x, y: p.y }, b: { x: q.x, y: q.y } };
+            }
+          }
+        }
+        return null;
+      }
+
+      function inferMovedToken(prevBoard, nextBoard) {
+        // Generic "one token moved from -> to" (same value), typically Guldo
+        if (!Array.isArray(prevBoard) || !Array.isArray(nextBoard)) return null;
+        const removed = [];
+        const added = [];
+        const h = Math.min(prevBoard.length, nextBoard.length);
+        for (let y = 0; y < h; y++) {
+          const prow = prevBoard[y] || [];
+          const nrow = nextBoard[y] || [];
+          const w = Math.min(prow.length, nrow.length);
+          for (let x = 0; x < w; x++) {
+            const a = prow[x];
+            const b = nrow[x];
+            if (a === b) continue;
+            if (a > 0 && b === 0) removed.push({ x, y, v: a });
+            if (a === 0 && b > 0) added.push({ x, y, v: b });
+          }
+        }
+        for (const r of removed) {
+          const m = added.find((p) => p.v === r.v);
+          if (m) return { type: 'guldo_move', token: r.v, from: { x: r.x, y: r.y }, to: { x: m.x, y: m.y } };
+        }
+        return null;
+      }
+
+      function findActorPlacedCell(diffs, actorToken) {
+        if (!diffs || !diffs.length || !actorToken) return null;
+        // prefer cells that became actorToken
+        const cand = diffs.filter((d) => d.b === actorToken && d.b > 0);
+        if (cand.length) return cand[cand.length - 1];
+        return null;
+      }
+
+      function findNewCrossCell(diffs, actorIndex) {
+        if (!diffs || !diffs.length) return null;
+        for (let i = diffs.length - 1; i >= 0; i--) {
+          const d = diffs[i];
+          if (d.b < 0 && d.a !== d.b && Math.abs(d.b) - 1 === actorIndex) return { x: d.x, y: d.y };
+        }
+        return null;
+      }
+
+      function findCrossCapturedCell(diffs, actorToken) {
+        if (!diffs || !diffs.length) return null;
+        for (let i = diffs.length - 1; i >= 0; i--) {
+          const d = diffs[i];
+          if (d.a < 0 && d.b === actorToken && d.b > 0) return { x: d.x, y: d.y };
+        }
+        return null;
+      }
+
+      function findNewPlacedPos(prevBoard, nextBoard) {
+        if (!Array.isArray(prevBoard) || !Array.isArray(nextBoard)) return null;
+        const prevSet = buildTokenSet(prevBoard);
+        const h = Math.min(prevBoard.length, nextBoard.length);
+        if (!h) return null;
+
+        const cands = [];
+        for (let y = 0; y < h; y++) {
+          const prow = prevBoard[y] || [];
+          const nrow = nextBoard[y] || [];
+          const w = Math.min(prow.length, nrow.length);
+          for (let x = 0; x < w; x++) {
+            const a = prow[x];
+            const b = nrow[x];
+            if (a === b) continue;
+            if (b > 0 && !prevSet.has(b)) cands.push({ x, y, v: b });
+          }
+        }
+        if (!cands.length) return null;
+        // prefer the first (normally only 1 per move)
+        return { x: cands[0].x, y: cands[0].y, v: cands[0].v };
+      }
+
       function copyText(text) {
         if (!text) return Promise.resolve(false);
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -3424,6 +3805,125 @@ if (!this.unlocked) {
         }
       }
 
+
+      // ================= Recoome irregular crack SVG =================
+      const __recoomeCrackCache = new Map();
+
+      function hash32(input) {
+        const s = String(input ?? '');
+        let h = 2166136261 >>> 0; // FNV-1a
+        for (let i = 0; i < s.length; i++) {
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 16777619) >>> 0;
+        }
+        return h >>> 0;
+      }
+
+      function mulberry32(a) {
+        return function () {
+          let t = (a += 0x6D2B79F5);
+          t = Math.imul(t ^ (t >>> 15), t | 1);
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      function makeRecoomeCrackSvg(seed) {
+        const rand = mulberry32((seed >>> 0) || 1);
+        const cx = 50, cy = 50;
+
+        function pick(a, b) { return a + (b - a) * rand(); }
+
+        const paths = [];
+        const nMain = 9 + Math.floor(rand() * 5);
+
+        function polyline(points) {
+          return points.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+        }
+
+        function makeBranch(startX, startY, ang, len, width) {
+          const segs = 4 + Math.floor(rand() * 4);
+          const pts = [[startX, startY]];
+          for (let s = 1; s <= segs; s++) {
+            const t = s / segs;
+            const r = len * t;
+            const j = pick(-1, 1) * pick(1.2, 4.8) * (1 - t);
+            const px = startX + Math.cos(ang) * r + Math.cos(ang + Math.PI / 2) * j + pick(-1.0, 1.0);
+            const py = startY + Math.sin(ang) * r + Math.sin(ang + Math.PI / 2) * j + pick(-1.0, 1.0);
+            pts.push([px, py]);
+          }
+          paths.push({ pts, w: width });
+        }
+
+        for (let i = 0; i < nMain; i++) {
+          const ang = pick(0, Math.PI * 2);
+          const len = pick(24, 56);
+          const w = pick(1.6, 2.9);
+
+          makeBranch(cx, cy, ang, len, w);
+
+          // 0~2 side branches
+          const nBr = rand() < 0.55 ? (rand() < 0.4 ? 2 : 1) : 0;
+          for (let b = 0; b < nBr; b++) {
+            const t = pick(0.28, 0.72);
+            const bx = cx + Math.cos(ang) * (len * t);
+            const by = cy + Math.sin(ang) * (len * t);
+            const ang2 = ang + pick(-0.9, 0.9);
+            const len2 = len * pick(0.25, 0.55);
+            makeBranch(bx, by, ang2, len2, w * pick(0.55, 0.85));
+          }
+        }
+
+        // tiny fractures
+        const nTiny = 18 + Math.floor(rand() * 16);
+        for (let i = 0; i < nTiny; i++) {
+          const ang = pick(0, Math.PI * 2);
+          const r0 = pick(6, 42);
+          const sx = cx + Math.cos(ang) * r0 + pick(-2, 2);
+          const sy = cy + Math.sin(ang) * r0 + pick(-2, 2);
+          const ang2 = ang + pick(-1.2, 1.2);
+          const len = pick(6, 16);
+          makeBranch(sx, sy, ang2, len, pick(0.8, 1.4));
+        }
+
+        const shadow = paths
+          .map((p) => `<polyline points="${polyline(p.pts)}" stroke="rgba(0,0,0,0.35)" stroke-width="${(p.w + 1.6).toFixed(2)}"/>`)
+          .join('');
+        const main = paths
+          .map((p) => `<polyline points="${polyline(p.pts)}" stroke="rgba(0,0,0,0.92)" stroke-width="${p.w.toFixed(2)}"/>`)
+          .join('');
+        const hi = paths
+          .map((p) => `<polyline points="${polyline(p.pts)}" stroke="rgba(255,255,255,0.10)" stroke-width="${Math.max(0.6, p.w - 1.1).toFixed(2)}"/>`)
+          .join('');
+
+        return (
+          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
+          `<rect x="0" y="0" width="100" height="100" fill="transparent"/>` +
+          `<g fill="none" stroke-linecap="round" stroke-linejoin="round">` +
+          shadow +
+          `</g>` +
+          `<g fill="none" stroke-linecap="round" stroke-linejoin="round">` +
+          main +
+          `</g>` +
+          `<g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85">` +
+          hi +
+          `</g>` +
+          `</svg>`
+        );
+      }
+
+      function makeCrackSvgDataUrl(seed) {
+        const k = (seed >>> 0) || 1;
+        const cached = __recoomeCrackCache.get(k);
+        if (cached) return cached;
+
+        const svg = makeRecoomeCrackSvg(k);
+        const url = 'url("data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '")';
+        __recoomeCrackCache.set(k, url);
+        return url;
+      }
+
+
 function App() {
         const [socket, setSocket] = React.useState(null);
         const OPTIMISTIC_PLACE = true; // ✅ 想關就改 false
@@ -3628,6 +4128,8 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
 
         const [room, setRoom] = React.useState(null);
         const [board, setBoard] = React.useState([]);
+        const boardRef = React.useRef([]);
+        React.useEffect(() => { boardRef.current = board || []; }, [board]);
         const [name, setName] = React.useState('');
 
         // ✅ 讓 socket callback 永遠拿到最新 name（同名回歸很重要）
@@ -3702,11 +4204,219 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
 
         const [copied, setCopied] = React.useState(false);
 
-        // ✅ Jeice FX
+        // ✅ V24 Board FX（Jeice orb / Recoome smash）
         const [fx, setFx] = React.useState(null);
+        const fxStartTimerRef = React.useRef(null);
         const fxTimerRef = React.useRef(null);
 
-        // ✅ 結算畫面（35 秒）：凍結終局棋盤 + 閃電標線 + 顯示勝利者角色卡
+        // ✅ Overlay FX stack (fog/cracks can coexist)
+        const [overlayFx, setOverlayFx] = React.useState([]);
+        const overlayTimersRef = React.useRef({});
+
+        // ✅ V25 FX lock + delayed board apply（Jeice / Ginyu / Guldo）
+        const [fxLocked, setFxLocked] = React.useState(false);
+        const pendingBoardRef = React.useRef(null);
+        const pendingBoardTimerRef = React.useRef(null);
+
+        function clearPendingBoard() {
+          try { if (pendingBoardTimerRef.current) clearTimeout(pendingBoardTimerRef.current); } catch (e) {}
+          pendingBoardTimerRef.current = null;
+          pendingBoardRef.current = null;
+          setFxLocked(false);
+        }
+
+        function delayApplyBoard(nextBoard, ms) {
+          clearPendingBoard();
+          setFxLocked(true);
+          pendingBoardRef.current = nextBoard;
+          pendingBoardTimerRef.current = setTimeout(() => {
+            pendingBoardTimerRef.current = null;
+            pendingBoardRef.current = null;
+            setFxLocked(false);
+            setBoard(nextBoard || []);
+          }, Math.max(0, Number(ms || 0)));
+        }
+
+
+        // ✅ V24 Skill card overlay（1.5s fade）
+        const [skillCardFx, setSkillCardFx] = React.useState(null);
+        const skillCardTimerRef = React.useRef(null);
+
+        // ✅ V24 prevent duplicate Jeice FX（place callback + roomUpdated）
+        const lastJeiceSigRef = React.useRef({ sig: null, t: 0 });
+
+        // ✅ V25 Burter first-step position (per actor token)
+        const burterFirstRef = React.useRef({});
+
+
+        // ===== V24 FX helpers (minimal: SkillCard + Jeice + Recoome) =====
+        function showSkillCard(roleIndex, opt) {
+          try {
+            if (skillCardTimerRef.current) clearTimeout(skillCardTimerRef.current);
+          } catch (e) {}
+          const o = opt || {};
+          const durationMs = typeof o.durationMs === 'number' ? o.durationMs : 1500;
+          setSkillCardFx({ roleIndex, t: Date.now(), ...o });
+          skillCardTimerRef.current = setTimeout(() => {
+            setSkillCardFx(null);
+            skillCardTimerRef.current = null;
+          }, durationMs);
+        }
+
+        function clearFxTimers() {
+          try {
+            if (fxStartTimerRef.current) clearTimeout(fxStartTimerRef.current);
+          } catch (e) {}
+          try {
+            if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
+          } catch (e) {}
+          fxStartTimerRef.current = null;
+          fxTimerRef.current = null;
+        }
+        function pushOverlayFx(item, ttlMs) {
+          if (!item) return;
+          const id =
+            (item.type || 'fx') +
+            '_' +
+            Date.now() +
+            '_' +
+            Math.random().toString(16).slice(2);
+          const fxItem = { ...item, id, startedAt: Date.now(), ttlMs: ttlMs || 0 };
+
+          setOverlayFx((prev) => (prev ? prev.concat([fxItem]) : [fxItem]));
+
+          if (ttlMs && ttlMs > 0) {
+            try {
+              const timer = setTimeout(() => {
+                setOverlayFx((prev) => (prev ? prev.filter((x) => x.id !== id) : prev));
+                try { delete overlayTimersRef.current[id]; } catch (e) {}
+              }, ttlMs);
+              overlayTimersRef.current[id] = timer;
+            } catch (e) {}
+          }
+        }
+
+        function clearOverlayFx() {
+          try {
+            const timers = overlayTimersRef.current || {};
+            Object.keys(timers).forEach((k) => {
+              try { clearTimeout(timers[k]); } catch (e) {}
+            });
+          } catch (e) {}
+          overlayTimersRef.current = {};
+          setOverlayFx([]);
+        }
+
+
+        function startJeiceFx(effect) {
+          // Jeice skill: show card 1.5s, then orb
+          showSkillCard(5);
+          clearFxTimers();
+          setFx(null);
+
+          fxStartTimerRef.current = setTimeout(() => {
+            fxStartTimerRef.current = null;
+            setFx(effect);
+            fxTimerRef.current = setTimeout(() => {
+              setFx(null);
+              fxTimerRef.current = null;
+            }, 900);
+          }, 1500);
+        }
+
+        function startRecoomeFx(at) {
+          // Recoome smash: show card 1.5s, cracks appear immediately and fade out
+          if (!at) return;
+          showSkillCard(2);
+          // allow coexist with other FX
+          pushOverlayFx({ type: 'recoome_spider', center: at, t: Date.now() }, 5200);
+        }
+
+        function startGinyuSwapFx(effect) {
+          // Ginyu swap: show card 1.5s, then 2 orbs cross
+          showSkillCard(0);
+          clearFxTimers();
+          setFx(null);
+          fxStartTimerRef.current = setTimeout(() => {
+            fxStartTimerRef.current = null;
+            setFx(effect);
+            fxTimerRef.current = setTimeout(() => {
+              setFx(null);
+              fxTimerRef.current = null;
+            }, 900);
+          }, 1500);
+        }
+
+        function startGuldoMoveFx(effect) {
+          // Guldo move: show card 1.5s, then orb
+          showSkillCard(4);
+          clearFxTimers();
+          setFx(null);
+          fxStartTimerRef.current = setTimeout(() => {
+            fxStartTimerRef.current = null;
+            setFx(effect);
+            fxTimerRef.current = setTimeout(() => {
+              setFx(null);
+              fxTimerRef.current = null;
+            }, 900);
+          }, 1500);
+        }
+
+        function startBurterDashFx(from, to) {
+          // Burter dash after 2nd piece: dash + card fly (L->R / R->L)
+          if (!from || !to) return;
+
+          const dir = (to.x - from.x) < 0 ? 'rtl' : 'ltr';
+
+          // ✅ card overlay fly across screen (no 1.5s wait)
+          showSkillCard(1, { variant: 'burterFly', dir, durationMs: 900 });
+
+          // ✅ placeholder sfx key (檔名之後再補音檔)
+          try { audioRef.current?.playSfxKey('burter_dash'); } catch (e) {}
+
+          clearFxTimers();
+          setFx({ type: 'burter_dash', from, to });
+          fxTimerRef.current = setTimeout(() => {
+            setFx(null);
+            fxTimerRef.current = null;
+          }, 900);
+        }
+
+        function startLoganFogFx(center) {
+          if (!center) return;
+          // gray fog around cross: should not cancel other fog (e.g., trap green fog)
+          pushOverlayFx({ type: 'logan_fog', center, t: Date.now() }, 3000);
+        }
+
+        function startLoganTrapFx(at) {
+          if (!at) return;
+          // Logan trap: show card 1.5s, then green fog (can coexist) + impact
+          showSkillCard(3);
+          try { audioRef.current?.playSfxKey('logan_trap'); } catch (e) {}
+          // do NOT clear other FX; this is an overlay
+          try { if (fxStartTimerRef.current) clearTimeout(fxStartTimerRef.current); } catch (e) {}
+          fxStartTimerRef.current = setTimeout(() => {
+            fxStartTimerRef.current = null;
+            pushOverlayFx({ type: 'logan_trap', center: at, t: Date.now() }, 3000);
+          }, 1500);
+        }
+
+function startLoganImpactFx(at) {
+          if (!at) return;
+          showSkillCard(3);
+          clearFxTimers();
+          setFx(null);
+          fxStartTimerRef.current = setTimeout(() => {
+            fxStartTimerRef.current = null;
+            setFx({ type: 'logan_impact', at });
+            fxTimerRef.current = setTimeout(() => {
+              setFx(null);
+              fxTimerRef.current = null;
+            }, 900);
+          }, 1500);
+        }
+
+// ✅ 結算畫面（35 秒）：凍結終局棋盤 + 閃電標線 + 顯示勝利者角色卡
         // result: { winnerIndex, winnerName, secondsLeft, finalBoard, winLine, winnerSlots, winnerRoleIdxs }
         const [result, setResult] = React.useState(null);
         const resultTimerRef = React.useRef(null);
@@ -3960,6 +4670,9 @@ async function toggleSfx() {
           });
 
           s.on('roomUpdated', (r) => {
+            const prevRoom = roomRef.current;
+            const prevBoard = prevRoom?.board || null;
+
             // 永遠先更新 ref（避免其他 callback 用到舊 room）
             roomRef.current = r;
 
@@ -3988,7 +4701,100 @@ async function toggleSfx() {
               }
             } catch (e) {}
 
-            setBoard(r.board || []);
+
+            // ✅ V25 FX inference（雙方可見 + Jeice/Ginyu/Guldo 延遲套盤面）
+            let delayedApply = false;
+            try {
+              const curView2 = viewRef.current;
+              const nextBoard = r.board || [];
+              if (curView2 === 'GAME' && !resultRef.current && prevRoom && prevBoard && nextBoard) {
+                const actorIndex = typeof prevRoom?.turnIndex === 'number' ? prevRoom.turnIndex : null;
+                const actorSlot = prevRoom?.mode === 'DUAL' ? prevRoom.turnSlot || 1 : 1;
+                const actorPlayer = actorIndex !== null ? prevRoom?.players?.[actorIndex] : null;
+                const actorRoleIndex = typeof actorIndex === 'number' ? getPlayerRoleIndex(prevRoom, actorPlayer, actorSlot) : null;
+                const actorToken = typeof actorIndex === 'number' ? actorIndex * 2 + actorSlot : null;
+
+                const diffs = diffCells(prevBoard, nextBoard);
+
+                // --- Jeice ---
+                if (actorRoleIndex === 5) {
+                  const inferred = inferJeiceFx(prevBoard, nextBoard);
+                  if (inferred) {
+                    const sig = jeiceSig(inferred);
+                    const last = lastJeiceSigRef.current || {};
+                    const now = Date.now();
+                    const duplicate = last.sig === sig && now - (last.t || 0) < 1400;
+                    if (!duplicate) {
+                      lastJeiceSigRef.current = { sig, t: now };
+                      startJeiceFx(inferred);
+                    }
+                    // ✅ 延遲套用盤面：避免被推棋子提前跳位
+                    delayApplyBoard(nextBoard, 2400);
+                    delayedApply = true;
+                  }
+                }
+
+                // --- Ginyu swap (delay apply) ---
+                if (!delayedApply && actorRoleIndex === 0) {
+                  const swap = inferSwapFx(prevBoard, nextBoard);
+                  if (swap) {
+                    startGinyuSwapFx(swap);
+                    delayApplyBoard(nextBoard, 2400);
+                    delayedApply = true;
+                  }
+                }
+
+                // --- Guldo move (delay apply) ---
+                if (!delayedApply && actorRoleIndex === 4) {
+                  const mv = inferMovedToken(prevBoard, nextBoard);
+                  if (mv) {
+                    startGuldoMoveFx(mv);
+                    delayApplyBoard(nextBoard, 2400);
+                    delayedApply = true;
+                  }
+                }
+
+                // --- Recoome smash (immediate apply ok) ---
+                if (!delayedApply && actorRoleIndex === 2 && actorToken) {
+                  const placed = findActorPlacedCell(diffs, actorToken);
+                  if (placed) startRecoomeFx({ x: placed.x, y: placed.y });
+                }
+
+                // --- Burter dash after 2nd piece ---
+                if (!delayedApply && actorRoleIndex === 1 && actorToken) {
+                  const placed = findActorPlacedCell(diffs, actorToken);
+                  if (placed) {
+                    const key = String(actorIndex) + ':' + String(actorSlot);
+                    const first = burterFirstRef.current ? burterFirstRef.current[key] : null;
+                    if (first && typeof first.x === 'number' && typeof first.y === 'number') {
+                      startBurterDashFx(first, { x: placed.x, y: placed.y });
+                      burterFirstRef.current[key] = null;
+                    } else {
+                      burterFirstRef.current[key] = { x: placed.x, y: placed.y };
+                    }
+                  }
+                }
+
+                // --- Logan fog / impact ---
+                if (!delayedApply && actorRoleIndex === 3) {
+                  // 1) 若落子踩在灰叉上（a<0 -> b=actorToken）
+                  if (actorToken) {
+                    const impact = findCrossCapturedCell(diffs, actorToken);
+                    if (impact) startLoganTrapFx(impact);
+                  }
+                  // 2) 若本步新放灰叉（b<0, owner==actorIndex），在周圍 8 格放暗霧
+                  if (typeof actorIndex === 'number') {
+                    const cross = findNewCrossCell(diffs, actorIndex);
+                    if (cross) startLoganFogFx(cross);
+                  }
+                }
+              }
+            } catch (e) {}
+
+            if (!delayedApply) {
+              // ✅ 若正在跑延遲套盤面（Jeice/Ginyu/Guldo），不要提前更新棋盤
+              if (!pendingBoardRef.current) setBoard(r.board || []);
+            }
 
             const curView = viewRef.current;
 
@@ -4016,9 +4822,105 @@ async function toggleSfx() {
 
 
           s.on('placed', (payload) => {
-            if (!resultRef.current && payload.board) setBoard(payload.board);
+            const prevRoom = roomRef.current;
+            const prevBoard = (prevRoom && prevRoom.board) ? prevRoom.board : (boardRef.current || []);
+            const nextBoard = payload?.board || prevBoard;
 
-            if (roomRef.current) {
+            // ✅ V26：改成在 placed 事件內推斷 FX（避免 roomUpdated 因為提前套盤面而抓不到 diff）
+            let delayedApply = false;
+            try {
+              const curView2 = viewRef.current;
+              if (curView2 === 'GAME' && !resultRef.current && prevRoom && prevBoard && payload?.board) {
+                const actorIndex = typeof prevRoom?.turnIndex === 'number' ? prevRoom.turnIndex : null;
+                const actorSlot = prevRoom?.mode === 'DUAL' ? (prevRoom.turnSlot || 1) : 1;
+                const actorPlayer = actorIndex !== null ? prevRoom?.players?.[actorIndex] : null;
+                const actorRoleIndex = typeof actorIndex === 'number' ? getPlayerRoleIndex(prevRoom, actorPlayer, actorSlot) : null;
+                const actorToken = typeof actorIndex === 'number' ? actorIndex * 2 + actorSlot : null;
+
+                const diffs = diffCells(prevBoard, nextBoard);
+
+                // --- Jeice (delay apply) ---
+                if (actorRoleIndex === 5) {
+                  const inferred = payload?.effect?.type === 'jeice' ? payload.effect : inferJeiceFx(prevBoard, nextBoard);
+                  if (inferred) {
+                    const sig = jeiceSig(inferred);
+                    const last = lastJeiceSigRef.current || {};
+                    const now = Date.now();
+                    const duplicate = last.sig === sig && now - (last.t || 0) < 1400;
+                    if (!duplicate) {
+                      lastJeiceSigRef.current = { sig, t: now };
+                      startJeiceFx(inferred);
+                    }
+                    delayApplyBoard(nextBoard, 2400);
+                    delayedApply = true;
+                  }
+                }
+
+                // --- Ginyu swap (delay apply) ---
+                if (!delayedApply && actorRoleIndex === 0) {
+                  const swap = inferSwapFx(prevBoard, nextBoard);
+                  if (swap) {
+                    startGinyuSwapFx(swap);
+                    delayApplyBoard(nextBoard, 2400);
+                    delayedApply = true;
+                  }
+                }
+
+                // --- Guldo move (delay apply) ---
+                if (!delayedApply && actorRoleIndex === 4) {
+                  const mv = inferMovedToken(prevBoard, nextBoard);
+                  if (mv) {
+                    startGuldoMoveFx(mv);
+                    delayApplyBoard(nextBoard, 2400);
+                    delayedApply = true;
+                  }
+                }
+
+                // --- Recoome smash (immediate apply ok) ---
+                if (!delayedApply && actorRoleIndex === 2 && actorToken) {
+                  const placed = findActorPlacedCell(diffs, actorToken);
+                  if (placed) startRecoomeFx({ x: placed.x, y: placed.y });
+                }
+
+                // --- Burter dash after 2nd piece ---
+                if (!delayedApply && actorRoleIndex === 1 && actorToken) {
+                  const placed = findActorPlacedCell(diffs, actorToken);
+                  if (placed) {
+                    const key = String(actorIndex) + ':' + String(actorSlot);
+                    const prevPT =
+                      typeof prevRoom?.turnMeta?.placedThisTurn === 'number'
+                        ? prevRoom.turnMeta.placedThisTurn
+                        : Number(actorPlayer?.placedThisTurn || 0);
+                    if (prevPT <= 0) {
+                      burterFirstRef.current[key] = { x: placed.x, y: placed.y };
+                    } else {
+                      const first = burterFirstRef.current[key];
+                      if (first) startBurterDashFx(first, { x: placed.x, y: placed.y });
+                      burterFirstRef.current[key] = null;
+                    }
+                  }
+                }
+
+                // --- Logan fog / impact ---
+                if (!delayedApply && actorRoleIndex === 3) {
+                  if (actorToken) {
+                    const impact = findCrossCapturedCell(diffs, actorToken);
+                    if (impact) startLoganTrapFx(impact);
+                  }
+                  if (typeof actorIndex === 'number') {
+                    const cross = findNewCrossCell(diffs, actorIndex);
+                    if (cross) startLoganFogFx(cross);
+                  }
+                }
+              }
+            } catch (e) {}
+
+            // ✅ 盤面更新：若是延遲套用，這裡不要提前 setBoard（避免棋子瞬移）
+            if (!resultRef.current && payload.board) {
+              if (!delayedApply) setBoard(payload.board);
+            }
+
+if (roomRef.current) {
               roomRef.current = {
                 ...roomRef.current,
                 board: payload.board || roomRef.current.board,
@@ -4046,17 +4948,6 @@ async function toggleSfx() {
             if (payload.turnMeta) {
               if (roomRef.current) roomRef.current.turnMeta = payload.turnMeta;
               setRoom((prev) => (prev ? { ...prev, turnMeta: payload.turnMeta } : prev));
-            }
-
-
-            // ✅ Jeice FX（由 server 傳 effect）
-            if (payload?.effect?.type === 'jeice') {
-              if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
-              setFx(payload.effect);
-              fxTimerRef.current = setTimeout(() => {
-                setFx(null);
-                fxTimerRef.current = null;
-              }, 900);
             }
 
             if (payload.win) {
@@ -5367,6 +6258,7 @@ function createRoom(mode) {
 
         function place(x, y) {
           if (!room || room.status !== 'PLAYING') return;
+          if (fxLocked) return;
 
           // ===== Jeice =====
           if (jeiceMode) {
@@ -5746,10 +6638,27 @@ function createRoom(mode) {
 
         const showMobileAudioUi = isCoarse || vp.w < 920;
 
+        const skillCardRole = view === 'GAME' && skillCardFx ? (ROLES[skillCardFx.roleIndex] || null) : null;
+
 
         return e(
           'div',
           { className: rootClass },
+
+          // ✅ V24 Skill card overlay
+          skillCardRole
+            ? e(
+                'div',
+                { className: 'skillCardFx' + (skillCardFx && skillCardFx.variant === 'burterFly' ? (skillCardFx.dir === 'rtl' ? ' burterFlyRtl' : ' burterFlyLtr') : '') },
+                e(
+                  'div',
+                  { className: 'skillCardInner' },
+                  skillCardRole.useCardArt && skillCardRole.cardArt
+                    ? e('img', { className: 'skillCardImg', src: skillCardRole.cardArt, alt: skillCardRole.name, draggable: 'false' })
+                    : e('div', { className: 'skillCardFallback' }, skillCardRole.name || 'SKILL')
+                )
+              )
+            : null,
 
           // ✅ Mobile audio panel overlay
           !(view === 'ROLE' || result) && audioPanelOpen &&
@@ -6144,6 +7053,7 @@ function createRoom(mode) {
                                 highlightJeiceTargets,
                                 highlightJeiceSource,
                                 fx,
+                                overlayFx,
                                 cellSize,
                                 pieceSize,
                                 cursor: null,
@@ -6372,6 +7282,7 @@ function createRoom(mode) {
                               highlightJeiceTargets,
                               highlightJeiceSource,
                               fx,
+                                overlayFx,
                               cellSize: 28,
                               pieceSize: 22,
                               cursor: boardCursor,
@@ -6956,6 +7867,8 @@ function createRoom(mode) {
         highlightJeiceTargets,
         highlightJeiceSource,
         fx,
+        overlayFx,
+        fxLocked,
         cellSize,
         pieceSize,
         cursor,
@@ -6986,6 +7899,7 @@ function createRoom(mode) {
         // ✅ 事件委派：只用一個 handler（避免 225 個 closure / render 開銷）
         function onGridPointerDown(ev) {
           if (readOnly) return;
+          if (fxLocked) return;
 
           const el = ev?.target?.closest ? ev.target.closest('.cell') : null;
           if (!el) return;
@@ -7024,6 +7938,9 @@ function createRoom(mode) {
 
             if (isFxCell(fx?.target, x, y)) className += ' fx-shake';
             if (isFxCell(fx?.to, x, y)) className += ' fx-pop';
+
+            if (fx?.type === 'ginyu_swap' && (isFxCell(fx?.a, x, y) || isFxCell(fx?.b, x, y))) className += ' fx-glow';
+            if (fx?.type === 'guldo_move' && isFxCell(fx?.from, x, y)) className += ' fx-glow';
 
             let inner = null;
 
@@ -7068,8 +7985,82 @@ function createRoom(mode) {
           return { left: sx + 'px', top: sy + 'px', '--dx': dx, '--dy': dy };
         }
 
+        function crackStyle(at) {
+          if (!at) return null;
+          const cell = cellSize || 28;
+          return { left: at.x * cell + 'px', top: at.y * cell + 'px', width: cell + 'px', height: cell + 'px' };
+        }
+
+
         const fx1 = fx?.type === 'jeice' ? orbStyle(fx.from, fx.target) : null;
         const fx2 = fx?.type === 'jeice' && fx?.to ? orbStyle(fx.target, fx.to) : null;
+
+        const ginyu1 = fx?.type === 'ginyu_swap' ? orbStyle(fx.a, fx.b) : null;
+        const ginyu2 = fx?.type === 'ginyu_swap' ? orbStyle(fx.b, fx.a) : null;
+
+        const guldo1 = fx?.type === 'guldo_move' ? orbStyle(fx.from, fx.to) : null;
+
+        function dashStyle(from, to) {
+          if (!from || !to) return null;
+          const cell = cellSize || 28;
+          const x1 = (from.x + 0.5) * cell;
+          const y1 = (from.y + 0.5) * cell;
+          const x2 = (to.x + 0.5) * cell;
+          const y2 = (to.y + 0.5) * cell;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const dist = Math.max(2, Math.hypot(dx, dy));
+          const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+          // ✅ start from "from" cell center
+          return { left: x1 + 'px', top: y1 + 'px', '--len': dist, '--ang': ang + 'deg' };
+        }
+
+        function rectStyle(at) {
+          if (!at) return null;
+          const cell = cellSize || 28;
+          return { left: at.x * cell + 'px', top: at.y * cell + 'px', width: cell + 'px', height: cell + 'px' };
+        }
+
+        const dash = fx?.type === 'burter_dash' ? dashStyle(fx.from, fx.to) : null;
+        const impact = fx?.type === 'logan_trap' ? rectStyle(fx.center) : (fx?.type === 'logan_impact' ? rectStyle(fx.at) : null);
+
+        const fogLayers =
+          (overlayFx || [])
+            .filter((it) => it && (it.type === 'logan_fog' || it.type === 'logan_trap') && it.center)
+            .map((it) => {
+              const out = [];
+              const green = it.type === 'logan_trap';
+              // ✅ V30: 5-cell X shape (center + 4 diagonals), all strong
+              const offsets = [
+                [0, 0],
+                [-1, -1],
+                [1, -1],
+                [-1, 1],
+                [1, 1],
+              ];
+              offsets.forEach((d) => {
+                const x = it.center.x + d[0];
+                const y = it.center.y + d[1];
+                if (x < 0 || y < 0 || x >= size || y >= size) return;
+                out.push({ x, y, strong: true, green });
+              });
+              return { id: it.id || (it.type + '_' + (it.t || 0)), cells: out, green };
+            });
+
+
+const crackLayers =
+          (overlayFx || [])
+            .filter((it) => it && it.type === 'recoome_spider' && it.center)
+            .map((it) => {
+              const c = it.center;
+              // ✅ V30: single 3x3 plate (clamped into board)
+              const x0 = Math.max(0, Math.min(size - 3, (c.x || 0) - 1));
+              const y0 = Math.max(0, Math.min(size - 3, (c.y || 0) - 1));
+              return { id: it.id || ('recoome_' + (it.t || 0)), x0, y0 };
+            });
+
+
+
 
         const cell = cellSize || 28;
         const piece = pieceSize || 22;
@@ -7085,6 +8076,23 @@ function createRoom(mode) {
             },
           },
 
+          // Recoome ground crack (under pieces)
+          crackLayers && crackLayers.length
+            ? e(
+                'div',
+                { className: 'fxUnderLayer' },
+                crackLayers.map((layer) => {
+                  const x0 = typeof layer.x0 === 'number' ? layer.x0 : 0;
+                  const y0 = typeof layer.y0 === 'number' ? layer.y0 : 0;
+                  return e('div', {
+                    key: 'crack3:' + layer.id,
+                    className: 'recoomeCrack3',
+                    style: { left: x0 * cell + 'px', top: y0 * cell + 'px' },
+                  });
+                })
+              )
+            : null,
+
           e(
             'div',
             {
@@ -7094,16 +8102,68 @@ function createRoom(mode) {
             },
             cells
           ),
-
-          fx?.type === 'jeice'
-            ? e(
+          ((fx && fx.type) || (overlayFx && overlayFx.length))
+            ?
+              e(
                 'div',
                 { className: 'fxLayer' },
-                fx1 ? e('div', { className: 'jeiceOrb', style: fx1 }) : null,
-                fx2 ? e('div', { className: 'jeiceOrb secondary', style: fx2 }) : null
+
+                // Jeice
+                fx?.type === 'jeice'
+                  ? e(
+                      React.Fragment,
+                      null,
+                      fx1 ? e('div', { className: 'jeiceOrb', style: fx1 }) : null,
+                      fx2 ? e('div', { className: 'jeiceOrb secondary', style: fx2 }) : null
+                    )
+                  : null,
+
+                // Ginyu swap
+                fx?.type === 'ginyu_swap'
+                  ? e(
+                      React.Fragment,
+                      null,
+                      ginyu1 ? e('div', { className: 'ginyuOrb', style: ginyu1 }) : null,
+                      ginyu2 ? e('div', { className: 'ginyuOrb', style: ginyu2 }) : null
+                    )
+                  : null,
+
+                // Guldo move
+                fx?.type === 'guldo_move' && guldo1 ? e('div', { className: 'guldoOrb', style: guldo1 }) : null,
+
+                // Burter dash
+                fx?.type === 'burter_dash' && dash ? e('div', { className: 'burterDash', style: dash }) : null,
+
+                // Logan fog
+                fogLayers && fogLayers.length
+                  ? e(
+                      React.Fragment,
+                      null,
+                      fogLayers.map((layer) =>
+                        e(
+                          React.Fragment,
+                          { key: 'fogLayer:' + layer.id },
+                          (layer.cells || []).map((p) =>
+                            e('div', {
+                              key: `fog:${layer.id}:${p.x},${p.y}`,
+                              className:
+                                'loganFog' +
+                                (p.green ? ' green' : '') +
+                                (p.strong ? ' strong' : ''),
+                              style: rectStyle(p),
+                            })
+                          )
+                        )
+                      )
+                    )
+                  : null,
+
+                // Logan impact
+                (fx?.type === 'logan_impact' || fx?.type === 'logan_trap') && impact ? e('div', { className: 'loganImpact', style: impact }) : null,
+
               )
             : null,
-          // ✅ 勝利連線：只在結算畫面覆蓋（不改格子顏色）
+// ✅ 勝利連線：只在結算畫面覆蓋（不改格子顏色）
           readOnly ? e(WinnerLineOverlay, { winLine, size, cellSize: cell }) : null
         );
       }
