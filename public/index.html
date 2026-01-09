@@ -935,6 +935,34 @@
         100% { opacity: 0; transform: translate(0, -50%) rotate(var(--ang, 0deg)) scaleX(1.0); }
       }
 
+      .burterBeam {
+        position: absolute;
+        height: 12px;
+        width: calc(var(--len, 0) * 1px);
+        border-radius: 999px;
+        transform-origin: 0 50%;
+        z-index: 6;
+        background: linear-gradient(90deg,
+          rgba(0,190,255,0),
+          rgba(0,190,255,0.95),
+          rgba(210,250,255,1),
+          rgba(0,190,255,0.95),
+          rgba(0,190,255,0)
+        );
+        filter: drop-shadow(0 0 14px rgba(0,190,255,0.65));
+        opacity: 0;
+        /* ✅ 先「射出」(scaleX 由小變大)，再由起點往終點「擦掉」 */
+        clip-path: inset(0 0 0 0);
+        animation: burterBeamShoot 900ms ease-out forwards;
+      }
+      @keyframes burterBeamShoot {
+        0%   { opacity: 0; transform: translate(0, -50%) rotate(var(--ang, 0deg)) scaleX(0.06); clip-path: inset(0 0 0 0); }
+        10%  { opacity: 1; transform: translate(0, -50%) rotate(var(--ang, 0deg)) scaleX(1.0); }
+        35%  { opacity: 1; clip-path: inset(0 0 0 0); }
+        100% { opacity: 0; transform: translate(0, -50%) rotate(var(--ang, 0deg)) scaleX(1.0); clip-path: inset(0 0 0 100%); }
+      }
+
+
       .loganFog {
         position: absolute;
         border-radius: 14px;
@@ -2440,6 +2468,18 @@
 
       const COLORS = ['#e53935', '#8e24aa', '#3949ab', '#1e88e5', '#00897b', '#fdd835'];
 
+      // ✅ V33: 技能卡（Skill Card）圖片路徑集中管理
+      // 之後你要換成「技能卡（不同動作）」時，只要改這個物件的路徑即可。
+      // 關鍵字：SKILL_CARD_ART
+      const SKILL_CARD_ART = {
+        0: '/img/cards/ginyu.png',
+        1: '/img/cards/burter.png',
+        2: '/img/cards/recoome.png',
+        3: '/img/cards/logan.png',
+        4: '/img/cards/guldo.png',
+        5: '/img/cards/jeice.png',
+      };
+
       const ROLES = [
         {
           name: '基紐',
@@ -2875,6 +2915,8 @@
           ginyu_swap: '/audio/sfx_ginyu_swap_placeholder.mp3',
           burter_place1: '/audio/sfx_burter_place1_placeholder.mp3',
           burter_place2: '/audio/sfx_burter_place2_placeholder.mp3',
+          burter_card: '/audio/sfx_burter_card_placeholder.mp3',
+          burter_beam: '/audio/sfx_burter_beam_placeholder.mp3',
           recoome_place: '/audio/sfx_recoome_place_placeholder.mp3',
           logan_place: '/audio/sfx_logan_place_placeholder.mp3',
           logan_cross: '/audio/sfx_logan_cross_placeholder.mp3',
@@ -4363,23 +4405,28 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         }
 
         function startBurterDashFx(from, to) {
-          // Burter dash after 2nd piece: dash + card fly (L->R / R->L)
+          // ✅ V33: 巴特第二子確定後 → 先顯示淡化技能卡(1.5s) → 再射出藍色光束
           if (!from || !to) return;
 
-          const dir = (to.x - from.x) < 0 ? 'rtl' : 'ltr';
+          // 1) 技能卡 overlay（與其他角色一致：1.5s fade）
+          showSkillCard(1);
+          try { audioRef.current?.playSfxKey('burter_card'); } catch (e) {}
 
-          // ✅ card overlay fly across screen (no 1.5s wait)
-          showSkillCard(1, { variant: 'burterFly', dir, durationMs: 900 });
-
-          // ✅ placeholder sfx key (檔名之後再補音檔)
-          try { audioRef.current?.playSfxKey('burter_dash'); } catch (e) {}
-
+          // 2) 1.5s 後才出光束（並保留一段音效）
           clearFxTimers();
-          setFx({ type: 'burter_dash', from, to });
-          fxTimerRef.current = setTimeout(() => {
-            setFx(null);
-            fxTimerRef.current = null;
-          }, 900);
+          setFx(null);
+
+          fxStartTimerRef.current = setTimeout(() => {
+            fxStartTimerRef.current = null;
+
+            setFx({ type: 'burter_beam', from, to });
+            try { audioRef.current?.playSfxKey('burter_beam'); } catch (e) {}
+
+            fxTimerRef.current = setTimeout(() => {
+              setFx(null);
+              fxTimerRef.current = null;
+            }, 950);
+          }, 1500);
         }
 
         function startLoganFogFx(center) {
@@ -6639,6 +6686,10 @@ function createRoom(mode) {
         const showMobileAudioUi = isCoarse || vp.w < 920;
 
         const skillCardRole = view === 'GAME' && skillCardFx ? (ROLES[skillCardFx.roleIndex] || null) : null;
+const skillCardArt =
+          skillCardRole && skillCardFx && typeof skillCardFx.roleIndex === 'number'
+            ? (SKILL_CARD_ART[skillCardFx.roleIndex] || skillCardRole.cardArt)
+            : (skillCardRole ? skillCardRole.cardArt : null);
 
 
         return e(
@@ -6653,8 +6704,8 @@ function createRoom(mode) {
                 e(
                   'div',
                   { className: 'skillCardInner' },
-                  skillCardRole.useCardArt && skillCardRole.cardArt
-                    ? e('img', { className: 'skillCardImg', src: skillCardRole.cardArt, alt: skillCardRole.name, draggable: 'false' })
+                  skillCardRole.useCardArt && skillCardArt
+                    ? e('img', { className: 'skillCardImg', src: skillCardArt, alt: skillCardRole.name, draggable: 'false' })
                     : e('div', { className: 'skillCardFallback' }, skillCardRole.name || 'SKILL')
                 )
               )
@@ -8021,7 +8072,7 @@ function createRoom(mode) {
           return { left: at.x * cell + 'px', top: at.y * cell + 'px', width: cell + 'px', height: cell + 'px' };
         }
 
-        const dash = fx?.type === 'burter_dash' ? dashStyle(fx.from, fx.to) : null;
+        const dash = (fx?.type === 'burter_dash' || fx?.type === 'burter_beam') ? dashStyle(fx.from, fx.to) : null;
         const impact = fx?.type === 'logan_trap' ? rectStyle(fx.center) : (fx?.type === 'logan_impact' ? rectStyle(fx.at) : null);
 
         const fogLayers =
@@ -8132,6 +8183,9 @@ const crackLayers =
                 fx?.type === 'guldo_move' && guldo1 ? e('div', { className: 'guldoOrb', style: guldo1 }) : null,
 
                 // Burter dash
+                fx?.type === 'burter_beam' && dash ? e('div', { className: 'burterBeam', style: dash }) : null,
+
+                // Burter dash (legacy)
                 fx?.type === 'burter_dash' && dash ? e('div', { className: 'burterDash', style: dash }) : null,
 
                 // Logan fog
