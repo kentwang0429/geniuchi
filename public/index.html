@@ -4930,7 +4930,8 @@ async function toggleSfx() {
                   const swap = inferSwapFx(basePrevBoard, nextBoard);
                   if (swap) {
                     startGinyuSwapFx(swap);
-                    delayApplyBoard(nextBoard, 2400);
+                    // Wait for skill card (3000ms) + orb travel (~320ms) before applying board
+                    delayApplyBoard(nextBoard, 3320);
                     delayedApply = true;
                   }
                 }
@@ -5081,7 +5082,8 @@ async function toggleSfx() {
                   const swap = inferSwapFx(prevBoard, nextBoard);
                   if (swap) {
                     startGinyuSwapFx(swap);
-                    delayApplyBoard(nextBoard, 2400);
+                    // Wait for skill card (3000ms) + orb travel (~320ms) before applying board
+                    delayApplyBoard(nextBoard, 3320);
                     delayedApply = true;
                   }
                 }
