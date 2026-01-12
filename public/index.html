@@ -175,6 +175,11 @@
         border: 1px solid rgba(255, 255, 255, 0.16);
         box-shadow: none;
       }
+      .tinyBtn.danger {
+        border-color: rgba(255, 120, 120, 0.35);
+        color: rgba(255, 180, 180, 0.95);
+      }
+
       .tinyBtn.copied {
         background: rgba(76, 175, 80, 0.22);
         border: 1px solid rgba(76, 175, 80, 0.35);
@@ -577,8 +582,6 @@
         overflow: visible !important;
       }
 
-      .winnerLineOverlay {
-        }
 
       /* ✅ 棋盤上方橫圖（置中對齊棋盤中線，寬度跟棋盤一致） */
       .boardStack{
@@ -2472,12 +2475,12 @@
       // 之後你要換成「技能卡（不同動作）」時，只要改這個物件的路徑即可。
       // 關鍵字：SKILL_CARD_ART
       const SKILL_CARD_ART = {
-        0: '/img/cards/ginyu.png',
-        1: '/img/cards/burter.png',
-        2: '/img/cards/recoome.png',
-        3: '/img/cards/logan.png',
-        4: '/img/cards/guldo.png',
-        5: '/img/cards/jeice.png',
+        0: '/img/cards/ginyu_skill.png',
+        1: '/img/cards/burter_skill.png',
+        2: '/img/cards/recoome_skill.png',
+        3: '/img/cards/logan_skill.png',
+        4: '/img/cards/guldo_skill.png',
+        5: '/img/cards/jeice_skill.png',
       };
 
       const ROLES = [
@@ -3998,14 +4001,16 @@ function App() {
             '/img/stone_2040_nogrid.png',
             '/img/grass.png',
             '/img/building003.png',
+            // ✅ 自動從角色清單中抓取所有卡面路徑
+            ...ROLES.map(r => r.cardArt).filter(Boolean),
+            // ✅ 額外的 FX 或裝飾圖
             '/img/cards/ginyu.png',
             '/img/cards/burter.png',
             '/img/cards/recoome.png',
             '/img/cards/logan.png',
             '/img/cards/guldo.png',
             '/img/cards/jeice.png',
-          ],
-          []
+          ], []
         );
 
         const ALL_AUDIO_URLS = React.useMemo(() => {
@@ -4267,7 +4272,16 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
           setFxLocked(false);
         }
 
+        function setFxBlock(ms) {
+          try {
+            const m = Math.max(0, Number(ms || 0));
+            const until = Date.now() + m;
+            fxBlockUntilRef.current = Math.max(Number(fxBlockUntilRef.current || 0), until);
+          } catch (e) {}
+        }
+
         function delayApplyBoard(nextBoard, ms) {
+          setFxBlock(ms);
           clearPendingBoard();
           setFxLocked(true);
           pendingBoardRef.current = nextBoard;
@@ -4290,6 +4304,13 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         const lastRecoomeSigRef = React.useRef({ sig: null, t: 0 });
         const lastBurterSigRef = React.useRef({ sig: null, t: 0 });
 
+        // ✅ V37 AI wait: block AI updates until major FX finished
+        const fxBlockUntilRef = React.useRef(0);
+        const queuedRoomAfterFxRef = React.useRef(null);
+        const queuedPlacedAfterFxRef = React.useRef(null);
+        const aiFlushTimerRef = React.useRef(null);
+
+
 
         // ✅ V25 Burter first-step position (per actor token)
         const burterFirstRef = React.useRef({});
@@ -4302,6 +4323,7 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
           } catch (e) {}
           const o = opt || {};
           const durationMs = typeof o.durationMs === 'number' ? o.durationMs : 1500;
+            setFxBlock(durationMs);
           setSkillCardFx({ roleIndex, t: Date.now(), ...o });
           skillCardTimerRef.current = setTimeout(() => {
             setSkillCardFx(null);
@@ -4419,6 +4441,9 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         }
 
         function startBurterDashFx(from, to) {
+          // ✅ V37: block AI updates during Burter card+beam FX
+          setFxBlock(2600);
+
           // ✅ V33: 巴特第二子確定後 → 先顯示淡化技能卡(1.5s) → 再射出藍色光束
           if (!from || !to) return;
 
@@ -4742,22 +4767,52 @@ async function toggleSfx() {
             } catch (e) {}
           });
 
-          s.on('roomUpdated', (r) => {
+          function onRoomUpdated(r, fromQueue) {
             // ✅ FX diff must compare against LAST SERVER room/board, not optimistic local state
             const prevRoom = serverRoomRef.current || roomRef.current;
             const prevBoard = (prevRoom?.board || serverBoardRef.current || null);
 
-            // 永遠先更新 ref（避免其他 callback 用到舊 room）
+            // ✅ V37: AI 需等待「上一位玩家的主要動畫」結束，避免 FX 互蓋 / 棋子不更新
+            if (!fromQueue) {
+              try {
+                const now = Date.now();
+                const blockUntil = Number(fxBlockUntilRef.current || 0);
+                const actorIndex0 = typeof prevRoom?.turnIndex === 'number' ? prevRoom.turnIndex : null;
+                const actorPlayer0 = actorIndex0 !== null ? (prevRoom?.players || [])[actorIndex0] : null;
+                const actorIsAi0 = !!actorPlayer0?.isAI;
+
+                const blocked = !!pendingBoardRef.current || blockUntil > now;
+                if (actorIsAi0 && blocked) {
+                  queuedRoomAfterFxRef.current = r;
+                  scheduleFxFlush();
+                  return;
+                }
+              } catch (e) {}
+            }
+
+
             roomRef.current = r;
             serverRoomRef.current = r;
             serverBoardRef.current = r?.board || [];
+
+            // 🚩 新增：檢查自己是否還在房間玩家名單中
+            // 如果房間已存在，且自己被踢出（不在 players 裡），則強制回大廳
+            if (r && r.players) {
+              const stillInRoom = r.players.some(p => p.id === s.id);
+              const curView = viewRef.current;
+              // 只有當前不在大廳(ENTRY)時才需要判斷，避免重複切換
+              if (!stillInRoom && curView !== 'ENTRY') {
+                alert('你已被移出房間');
+                setView('ENTRY');
+                return; // 被踢出後不需執行後續 room 更新邏輯
+              }
+            }
 
             // ✅ 結算期間：只暫存，不動 UI（避免狀態半套導致 render 掛掉）
             if (resultRef.current) {
               pendingRoomAfterResultRef.current = r;
               return;
             }
-
             setRoom(r);
 
             // 同步自己選到的顏色/角色
@@ -4897,12 +4952,18 @@ async function toggleSfx() {
             // ✅ STARTGAME 之後一定要能進 GAME
             //   就算你剛好還停在 ROLE（例如房主/別人啟動遊戲時你在選角畫面）
             if (r?.status === 'PLAYING') {
-              setView('GAME');
+            // 🚩 1. 如果目前還沒在遊戲畫面，先顯示遮罩
+            if (viewRef.current !== 'GAME') {
+              setLoadingPhase('GAME');
+            }
 
-              // ✅ 進棋局時顯示「載入棋局中」並預載資源（避免棋盤/音效第一次卡頓）
-              //   - 房主按 Start Game 會走 startGame()，其他人也會在這裡收到狀態切換
-              ensureGameReady();
-            } else if (r?.status === 'LOBBY') {
+            // 🚩 2. 執行預載入 (包含圖片、音效、解碼)
+            ensureGameReady().then(() => {
+              // 🚩 3. 確定資源都 Ready 了，才正式切換到遊戲畫面
+              setView('GAME');
+            });
+            
+          } else if (r?.status === 'LOBBY') {
               if (curView !== 'ROLE') setView('ROOM');
 
               // ✅ 若正在「載入房間中」，一旦回到 Lobby 就可以關閉遮罩（保險）
@@ -4914,13 +4975,36 @@ async function toggleSfx() {
             }
 
             updateTurnInfo(r);
-          });
+          }
+
+          s.on('roomUpdated', (r) => onRoomUpdated(r, false));
 
 
-          s.on('placed', (payload) => {
+
+
+          function onPlaced(payload, fromQueue) {
             const prevRoom = roomRef.current;
             const prevBoard = (prevRoom && prevRoom.board) ? prevRoom.board : (boardRef.current || []);
             const nextBoard = payload?.board || prevBoard;
+
+            // ✅ V37: 若目前仍在跑主要 FX（技能卡/延遲套盤面/巴特光束），AI 的 placed 先暫存
+            if (!fromQueue) {
+              try {
+                const now = Date.now();
+                const blockUntil = Number(fxBlockUntilRef.current || 0);
+                const actorIndex0 = typeof prevRoom?.turnIndex === 'number' ? prevRoom.turnIndex : null;
+                const actorPlayer0 = actorIndex0 !== null ? (prevRoom?.players || [])[actorIndex0] : null;
+                const actorIsAi0 = !!actorPlayer0?.isAI;
+
+                const blocked = !!pendingBoardRef.current || blockUntil > now;
+                if (actorIsAi0 && blocked) {
+                  queuedPlacedAfterFxRef.current = payload;
+                  scheduleFxFlush();
+                  return;
+                }
+              } catch (e) {}
+            }
+
 
             // ✅ V26：改成在 placed 事件內推斷 FX（避免 roomUpdated 因為提前套盤面而抓不到 diff）
             let delayedApply = false;
@@ -5080,7 +5164,59 @@ if (roomRef.current) {
             optimisticRef.current = null;
 
             updateTurnInfo(roomRef.current);
-          });
+          }
+
+          s.on('placed', (payload) => onPlaced(payload, false));
+
+          // ✅ V37: flush queued AI updates after FX block ends
+          function flushQueuedFx() {
+            try {
+              if (queuedRoomAfterFxRef.current) {
+                const q = queuedRoomAfterFxRef.current;
+                queuedRoomAfterFxRef.current = null;
+                onRoomUpdated(q, true);
+                return;
+              }
+              if (queuedPlacedAfterFxRef.current) {
+                const q = queuedPlacedAfterFxRef.current;
+                queuedPlacedAfterFxRef.current = null;
+                onPlaced(q, true);
+                return;
+              }
+            } catch (e) {}
+          }
+
+          function scheduleFxFlush() {
+            try {
+              if (aiFlushTimerRef.current) return;
+
+              const now = Date.now();
+              const blockUntil = Number(fxBlockUntilRef.current || 0);
+
+              // 若還在 delayApplyBoard（pendingBoardRef），先短間隔輪詢；否則等到 blockUntil
+              let wait = 60;
+              if (pendingBoardRef.current) {
+                wait = 80;
+              } else if (blockUntil > now) {
+                wait = Math.max(60, blockUntil - now + 30);
+              }
+
+              aiFlushTimerRef.current = setTimeout(() => {
+                aiFlushTimerRef.current = null;
+                const now2 = Date.now();
+                const blockUntil2 = Number(fxBlockUntilRef.current || 0);
+                const blocked2 = !!pendingBoardRef.current || blockUntil2 > now2;
+                if (blocked2) {
+                  scheduleFxFlush();
+                  return;
+                }
+                flushQueuedFx();
+              }, wait);
+            } catch (e) {}
+          }
+
+
+
 
           s.on('gudoCancelled', () => {
             setHighlightGudo([]);
@@ -5132,7 +5268,7 @@ if (roomRef.current) {
           const am = audioRef.current;
           if (!am) return;
           if (!am.unlocked) return;
-if (result) {
+          if (result) {
             am.startVictory();
             return;
           }
@@ -5800,16 +5936,32 @@ function createRoom(mode) {
           });
         }
 
-        function startGame() {
+        async function startGame() {
+          if (!room) return;
           audioRef.current?.uiClick();
 
-          // ✅ 先預載棋局用到的圖與音（並顯示載入遮罩）
+          // 🚩 1. 顯示載入遮罩
           setLoadingPhase('GAME');
-          preloadGameAssetsOnce().catch(() => {});
 
-          socket.emit('startGame', { roomId: room.id });
-
-          // ✅ 真正進入 GAME 時，roomUpdated 也會再 ensureGameReady 一次（保險）
+          try {
+            // 🚩 2. 強制預載入所有遊戲資源 (圖片 + 音效)
+            await Promise.all([
+              preloadImages(IMAGE_ASSETS),
+              preloadAudios(ALL_AUDIO_URLS)
+            ]);
+            
+            // 🚩 3. 資源載入完畢後，才發送開始訊號給伺服器
+            socket.emit('startGame', { roomId: room.id }, (res) => {
+              if (res && !res.ok) {
+                setLoadingPhase(null); // 若後端失敗，關掉遮罩
+                if (res.message) alert(res.message);
+              }
+            });
+          } catch (e) {
+            console.error("Preload failed", e);
+            socket.emit('startGame', { roomId: room.id });
+            setLoadingPhase(null);
+          }
         }
 
         /* =========================================================
@@ -6111,7 +6263,49 @@ function createRoom(mode) {
           );
         }
 
-        // ✅ 設定 AI 顏色（房主）
+        
+        function kickPlayer(targetIdOrName) {
+          audioRef.current?.uiClick();
+          const rid = roomRef.current?.id || room?.id;
+          if (!rid) return;
+          const ok = confirm('確定要把該玩家踢出房間嗎？（將返回大廳）');
+          if (!ok) return;
+
+          socket.emit('kickPlayer', { roomId: rid, target: targetIdOrName }, (res) => {
+            if (!res?.ok) {
+              alert(res?.message || '踢人失敗');
+              return;
+            }
+            if (res.room) {
+              roomRef.current = res.room;
+              setRoom(res.room);
+              if (res.room.board) setBoard(res.room.board);
+            }
+          });
+        }
+
+        function removeAiPlayer(targetIdOrName) {
+          audioRef.current?.uiClick();
+          const rid = roomRef.current?.id || room?.id;
+          if (!rid) return;
+          const ok = confirm('確定要移除該 AI 嗎？');
+          if (!ok) return;
+
+          socket.emit('removeAI', { roomId: rid, target: targetIdOrName }, (res) => {
+            if (!res?.ok) {
+              alert(res?.message || '移除 AI 失敗');
+              return;
+            }
+            if (res.room) {
+              roomRef.current = res.room;
+              setRoom(res.room);
+              if (res.room.board) setBoard(res.room.board);
+            }
+          });
+        }
+
+
+// ✅ 設定 AI 顏色（房主）
         function setAiColor(targetIdOrName, colorIndex) {
           audioRef.current?.uiClick();
           const rid = roomRef.current?.id || room?.id;
@@ -7054,6 +7248,9 @@ const skillCardArt =
                     const ai = isAiPlayer(p);
                     const isHost = room?.hostId === socket?.id;
 
+                    const isMe = !!(p?.id && socket?.id && p.id === socket.id);
+                    const canKick = !!isHost && !isMe;
+
                     return e(
                       'div',
                       { key: p.id || p.name, className: 'playerLine' },
@@ -7084,7 +7281,21 @@ const skillCardArt =
                           (room?.hostId === p.id || room?.hostId === p?.id) ? e('span', { className: 'badge' }, '房主') : null
                         ),
 
-                        // ✅ AI controls (only host & only in LOBBY)
+                        
+                        // ✅ V37 host kick/remove (front-end emit; backend later)
+                        canKick
+                          ? e(
+                              'button',
+                              {
+                                className: 'tinyBtn danger',
+                                onClick: () => (ai ? removeAiPlayer(p?.id || p?.name) : kickPlayer(p?.id || p?.name)),
+                                title: ai ? '移除 AI（後端尚未接 removeAi）' : '踢出玩家（後端尚未接 kickPlayer）',
+                              },
+                              ai ? '移除 AI' : '踢出'
+                            )
+                          : null,
+
+// ✅ AI controls (only host & only in LOBBY)
                         ai && isHost && room?.status === 'LOBBY'
                           ? e(
                               'div',

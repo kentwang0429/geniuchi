@@ -554,6 +554,82 @@ class GameManager {
     cb?.({ ok: true, playerIndex: idx });
   }
 
+  // ✅ NEW: 房主移除玩家/AI（給 server.js 用）
+  // data: { playerId? | targetId? | target?, reason? }
+  removePlayer(roomId, data, cb) {
+    const room = this.rooms?.[roomId];
+    if (!room) return cb?.({ ok: false, message: '房間不存在' });
+
+    this._touchRoom(room);
+
+    const payload = data || {};
+    const raw = payload.playerId || payload.targetId || payload.target;
+    if (!raw) return cb?.({ ok: false, message: 'target 無效' });
+
+    // 1) 先用 id 找
+    let idx = room.players?.findIndex((p) => p?.id === raw) ?? -1;
+
+    // 2) 再用 name 找（若 raw 不是 id）
+    if (idx === -1 && typeof raw === 'string') {
+      idx = room.players?.findIndex((p) => String(p?.name || '') === String(raw)) ?? -1;
+    }
+
+    // 3) 若要求只移除 AI：找第一個 AI
+    if (idx === -1 && payload.onlyAI) {
+      idx = room.players?.findIndex((p) => p?.isAI) ?? -1;
+    }
+
+    if (idx === -1) return cb?.({ ok: false, message: '玩家不存在' });
+
+    const removed = room.players[idx];
+
+    // ✅ 不允許把房主踢掉（避免房間進入奇怪狀態）
+    if (removed?.id && room.hostId === removed.id) {
+      return cb?.({ ok: false, message: '不可移除房主' });
+    }
+
+    // 移除玩家
+    room.players.splice(idx, 1);
+
+    // ✅ 若移除的是 AI：清掉 AI timer/flag（避免殘留）
+    if (removed?.isAI) {
+      try {
+        if (room._aiTimer) {
+          clearTimeout(room._aiTimer);
+          room._aiTimer = null;
+        }
+      } catch (e) {}
+      room._aiBusy = false;
+    }
+
+    // ✅ turnIndex 安全修正（避免越界）
+    if (typeof room.turnIndex !== 'number') room.turnIndex = 0;
+    if (room.status === 'PLAYING') {
+      if (idx < room.turnIndex) room.turnIndex = Math.max(0, room.turnIndex - 1);
+      if (room.turnIndex >= (room.players?.length || 0)) room.turnIndex = 0;
+    } else {
+      if (room.turnIndex >= (room.players?.length || 0)) room.turnIndex = 0;
+    }
+
+    const removedInfo = {
+      id: removed?.id || null,
+      name: removed?.name || null,
+      isAI: !!removed?.isAI,
+    };
+
+    // ✅ 廣播狀態（沿用你現有 roomUpdated / turnInfo 機制）
+    this._emitRoomUpdated(roomId, room, { removed: removedInfo });
+
+    // 若正在遊戲中，補發 turnInfo（也會順便處理輪到 AI 的自動排程）
+    if (room.status === 'PLAYING') {
+      this._emitTurnInfo(roomId, room);
+    }
+
+    cb?.({ ok: true, removed: removedInfo, room });
+  }
+
+
+
   // ================= AI Scheduler =================
   _maybeScheduleAi(roomId) {
     const room = this.rooms[roomId];

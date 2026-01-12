@@ -144,6 +144,109 @@ io.on('connection', (socket) => {
   socket.on('pickColorByHost', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
   socket.on('hostSetAiColor', (payload, cb) => gameManager.setAiColor?.(socket, payload, wrapCb(cb)));
 
+
+  // =========================
+  // ✅ NEW: Kick / Remove player & AI (host-only)  (前端可先 emit；後端已接好)
+  // =========================
+  const _forceLeaveRoom = (targetSocketId, roomId) => {
+    try {
+      const s = io.sockets?.sockets?.get(targetSocketId);
+      if (s) s.leave(roomId);
+    } catch (e) {}
+  };
+
+  const _emitKicked = (targetSocketId, roomId, reason) => {
+    try {
+      io.to(targetSocketId).emit('kicked', { roomId, reason: reason || 'kicked' });
+      // alias：有些前端可能監聽不同事件名
+      io.to(targetSocketId).emit('forceLeave', { roomId, reason: reason || 'kicked' });
+      io.to(targetSocketId).emit('leftRoom', { roomId, forced: true, reason: reason || 'kicked' });
+    } catch (e) {}
+  };
+
+  const _hostRemoveImpl = (payload, cb, onlyAI) => {
+    cb = wrapCb(cb);
+    let __cbCalled = false;
+    const __safeCb = (v) => {
+      if (__cbCalled) return;
+      __cbCalled = true;
+      try { cb(v); } catch (e) {}
+    };
+    cb = __safeCb;
+
+    try {
+
+    const roomId = payload?.roomId;
+    const room = rooms[roomId];
+    if (!room) return cb({ ok: false, message: '房間不存在' });
+
+    touchRoom(room);
+
+    if (!isHost(room, socket.id)) return cb({ ok: false, message: '只有房主可以踢人/移除 AI' });
+
+    // ✅ 目標：人類需要指定；AI 可不指定（預設移除第一個 AI）
+    const target = payload?.playerId || payload?.targetId || payload?.target || payload?.name || null;
+
+    if (!onlyAI) {
+      if (!target) return cb({ ok: false, message: '請指定要踢出的玩家' });
+      // 不允許踢自己（房主）
+      if (target === socket.id) return cb({ ok: false, message: '不可踢出自己' });
+    }
+
+    const reason = payload?.reason || (onlyAI ? 'remove_ai' : 'kick_player');
+
+    // ✅ 交給 gameManager 做「從 players 移除 + turnIndex 安全修正 + roomUpdated/turnInfo」
+    gameManager.removePlayer?.(roomId, { target, onlyAI: !!onlyAI, reason }, (res) => {
+      if (!res?.ok) return cb(res);
+
+      // ✅ 若踢的是真人：強制離開 socket room，並通知回大廳
+      const rid = roomId;
+      const removedId = res?.removed?.id;
+
+      if (removedId && typeof removedId === 'string' && !String(removedId).startsWith('ai:')) {
+        _forceLeaveRoom(removedId, rid);
+        _emitKicked(removedId, rid, reason);
+      }
+
+      // ✅ 房間空了就清掉
+      if ((room.players?.length || 0) === 0) {
+        delete rooms[rid];
+      } else {
+        touchRoom(room);
+      }
+
+      cb({ ok: true, removed: res?.removed || null, room: rooms[rid] || null });
+    });
+    } catch (e) {
+      try { console.error('[kick/remove] error', e); } catch (_) {}
+      try { cb({ ok: false, message: 'server error' }); } catch (_) {}
+    }
+
+  };
+
+  // ---- Player kick ----
+  socket.on('kickPlayer', (payload, cb) => _hostRemoveImpl(payload, cb, false));
+  socket.on('kick', (payload, cb) => _hostRemoveImpl(payload, cb, false));
+  socket.on('removePlayer', (payload, cb) => _hostRemoveImpl(payload, cb, false));
+  socket.on('hostKickPlayer', (payload, cb) => _hostRemoveImpl(payload, cb, false));
+  socket.on('forceKick', (payload, cb) => _hostRemoveImpl(payload, cb, false));
+
+  // ---- AI remove ----
+  socket.on('removeAi', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('removeAI', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('kickAi', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('kickAI', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('deleteAi', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('deleteAI', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+
+
+  socket.on('removeBot', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('removeNpc', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('removeNPC', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('deleteBot', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('deleteNpc', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('kickBot', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  socket.on('kickNpc', (payload, cb) => _hostRemoveImpl(payload, cb, true));
   socket.on('pingRoom', (data, cb) => {
     const room = rooms[data?.roomId];
     if (room) touchRoom(room);
