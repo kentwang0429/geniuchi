@@ -889,8 +889,9 @@
         width: var(--piece);
         height: var(--piece);
         border-radius: 50%;
-        background: radial-gradient(circle at 35% 35%, rgba(220,255,255,0.95), rgba(90,220,255,0.75) 45%, rgba(0,0,0,0) 72%);
-        filter: drop-shadow(0 0 12px rgba(90,220,255,0.55));
+        /* 改為紫色系光球 */
+        background: radial-gradient(circle at 35% 35%, rgba(225,180,255,0.95), rgba(150,100,240,0.75) 45%, rgba(0,0,0,0) 72%);
+        filter: drop-shadow(0 0 12px rgba(150,100,240,0.55));
         animation: jeiceMove 320ms cubic-bezier(0.15, 0.9, 0.25, 1) forwards;
       }
       .ginyuOrb::after {
@@ -898,7 +899,7 @@
         position: absolute;
         inset: calc(var(--piece) * -0.45);
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(90,220,255,0.35), rgba(90,220,255,0));
+        background: radial-gradient(circle, rgba(150,100,240,0.35), rgba(150,100,240,0));
         animation: jeicePulse 280ms ease-out forwards;
       }
 
@@ -1011,6 +1012,10 @@
         /* ✅ 更透明：不要擋住棋局 */
         background: radial-gradient(circle at 50% 40%, rgba(0,0,0,0.06), rgba(0,0,0,0.18));
         animation: skillCardFade 1500ms ease-out forwards;
+      }
+      /* 當為基紐技能卡時，延長動畫至 3s（讓畫面停留更久） */
+      .skillCardFx.ginyuLong {
+        animation: skillCardFade 3000ms ease-out forwards;
       }
       .skillCardInner {
         width: min(320px, 74vw);
@@ -4322,14 +4327,44 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
             if (skillCardTimerRef.current) clearTimeout(skillCardTimerRef.current);
           } catch (e) {}
           const o = opt || {};
-          const durationMs = typeof o.durationMs === 'number' ? o.durationMs : 1500;
+          // 若呼叫時未指定 duration，基紐（roleIndex===0）預設延長為 3000ms，其他角色預設 1500ms
+          const durationMs = typeof o.durationMs === 'number' ? o.durationMs : (roleIndex === 0 ? 3000 : 1500);
             setFxBlock(durationMs);
           setSkillCardFx({ roleIndex, t: Date.now(), ...o });
+          // 若為基紐（roleIndex === 0），在技能卡出現時播放對應音效
+          try {
+            const am = (typeof audioRef !== 'undefined' && audioRef && audioRef.current) ? audioRef.current : null;
+            if (am && typeof roleIndex === 'number' && roleIndex === 0) {
+              try { am.playSfxKey('ginyu_swap'); } catch (e) {}
+            }
+          } catch (e) {}
           skillCardTimerRef.current = setTimeout(() => {
             setSkillCardFx(null);
             skillCardTimerRef.current = null;
           }, durationMs);
         }
+
+        // Expose debug helpers for manual testing from browser console
+        try {
+          (window.__GENIUCHI_DEBUG = window.__GENIUCHI_DEBUG || {});
+          window.__GENIUCHI_DEBUG.showSkillCard = function (roleIndex, opt) {
+            try {
+              return showSkillCard(roleIndex, opt);
+            } catch (e) {
+              console.error('[GENIUCHI DEBUG] showSkillCard error', e);
+            }
+          };
+          // expose audioRef.current playback helper when available
+          window.__GENIUCHI_DEBUG.playSfx = function (key) {
+            try {
+              const am = (typeof audioRef !== 'undefined' && audioRef && audioRef.current) ? audioRef.current : null;
+              if (!am) return console.warn('[GENIUCHI DEBUG] AudioMgr not ready');
+              return am.playSfxKey(String(key));
+            } catch (e) {
+              console.error('[GENIUCHI DEBUG] playSfx error', e);
+            }
+          };
+        } catch (e) {}
 
         function clearFxTimers() {
           try {
@@ -4411,8 +4446,8 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         }
 
         function startGinyuSwapFx(effect) {
-          // Ginyu swap: show card 1.5s, then 2 orbs cross
-          showSkillCard(0);
+          // Ginyu swap: show card 3.0s, then 2 orbs cross
+          showSkillCard(0, { durationMs: 3000 });
           clearFxTimers();
           setFx(null);
           fxStartTimerRef.current = setTimeout(() => {
@@ -4422,7 +4457,7 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
               setFx(null);
               fxTimerRef.current = null;
             }, 900);
-          }, 1500);
+          }, 3000);
         }
 
         function startGuldoMoveFx(effect) {
@@ -6991,7 +7026,7 @@ const skillCardArt =
           skillCardRole
             ? e(
                 'div',
-                { className: 'skillCardFx' + (skillCardFx && skillCardFx.variant === 'burterFly' ? (skillCardFx.dir === 'rtl' ? ' burterFlyRtl' : ' burterFlyLtr') : '') },
+                { className: 'skillCardFx' + (skillCardFx && skillCardFx.variant === 'burterFly' ? (skillCardFx.dir === 'rtl' ? ' burterFlyRtl' : ' burterFlyLtr') : '') + (skillCardFx && skillCardFx.roleIndex === 0 ? ' ginyuLong' : '') },
                 e(
                   'div',
                   { className: 'skillCardInner' },
