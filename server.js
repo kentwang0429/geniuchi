@@ -247,6 +247,60 @@ io.on('connection', (socket) => {
   socket.on('deleteNpc', (payload, cb) => _hostRemoveImpl(payload, cb, true));
   socket.on('kickBot', (payload, cb) => _hostRemoveImpl(payload, cb, true));
   socket.on('kickNpc', (payload, cb) => _hostRemoveImpl(payload, cb, true));
+  
+  // ---- Host transfer (房主可以轉讓給其他玩家) ----
+  const _hostTransferImpl = (payload, cb) => {
+    cb = wrapCb(cb);
+    let __cbCalled = false;
+    const __safeCb = (v) => {
+      if (__cbCalled) return;
+      __cbCalled = true;
+      try { cb(v); } catch (e) {}
+    };
+    cb = __safeCb;
+
+    try {
+      const roomId = payload?.roomId;
+      const room = rooms[roomId];
+      if (!room) return cb({ ok: false, message: '房間不存在' });
+
+      touchRoom(room);
+
+      if (!isHost(room, socket.id)) return cb({ ok: false, message: '只有房主可以轉讓房主' });
+
+      const target = payload?.playerId || payload?.targetId || payload?.target || payload?.id || null;
+      if (!target) return cb({ ok: false, message: '請指定欲成為房主的玩家' });
+
+      const p = findPlayer(room, target) || room.players.find((pp) => pp.id === target || pp.name === target);
+      if (!p) return cb({ ok: false, message: '目標玩家不存在' });
+
+      // 不允許轉給自己
+      if (p.id === socket.id) return cb({ ok: false, message: '目標已是房主' });
+
+      // 不允許轉給 AI（若想允許可移除此檢查）
+      if (p.isAI) return cb({ ok: false, message: '不可將房主轉給 AI' });
+
+      const prev = room.hostId;
+      room.hostId = p.id;
+      touchRoom(room);
+
+      // 通知房內所有人（含新舊房主）
+      io.to(room.id).emit('hostChanged', { roomId: room.id, newHostId: p.id, prevHostId: prev });
+      try { io.to(p.id).emit('hostGranted', { roomId: room.id }); } catch (e) {}
+
+      emitRoomUpdated(room);
+
+      cb({ ok: true, room, newHostId: p.id, prevHostId: prev });
+    } catch (e) {
+      try { console.error('[transfer host] error', e); } catch (_) {}
+      try { cb({ ok: false, message: 'server error' }); } catch (_) {}
+    }
+  };
+
+  socket.on('transferHost', (payload, cb) => _hostTransferImpl(payload, cb));
+  socket.on('passHost', (payload, cb) => _hostTransferImpl(payload, cb));
+  socket.on('transfer', (payload, cb) => _hostTransferImpl(payload, cb));
+  socket.on('hostTransfer', (payload, cb) => _hostTransferImpl(payload, cb));
   socket.on('pingRoom', (data, cb) => {
     const room = rooms[data?.roomId];
     if (room) touchRoom(room);

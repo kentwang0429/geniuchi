@@ -6347,6 +6347,31 @@ function createRoom(mode) {
         }
 
 
+        // 轉讓房主（房主呼叫，將 hostId 設給 target）
+        function transferHost(targetIdOrName) {
+          audioRef.current?.uiClick();
+          const rid = roomRef.current?.id || room?.id;
+          if (!rid) return;
+          const ok = confirm('確定要將房主權限轉讓給該玩家嗎？（此操作會將你變成一般玩家）');
+          if (!ok) return;
+
+          emitTry(
+            ['transferHost', 'passHost', 'transfer', 'hostTransfer'],
+            { roomId: rid, playerId: targetIdOrName, target: targetIdOrName },
+            (res) => {
+              if (!res?.ok) {
+                alert(res?.message || '轉讓房主失敗');
+                return;
+              }
+              if (res.room) {
+                roomRef.current = res.room;
+                setRoom(res.room);
+              }
+            }
+          );
+        }
+
+
 // ✅ 設定 AI 顏色（房主）
         function setAiColor(targetIdOrName, colorIndex) {
           audioRef.current?.uiClick();
@@ -7336,6 +7361,20 @@ const skillCardArt =
                               ai ? '移除 AI' : '踢出'
                             )
                           : null,
+
+                          // 房主轉讓按鈕（房主可將房主權限轉給其他真人玩家）
+                          isHost && !isMe && !ai
+                            ? e(
+                                'button',
+                                {
+                                  className: 'tinyBtn',
+                                  onClick: () => transferHost(p?.id || p?.name),
+                                  title: '將房主權限轉讓給該玩家',
+                                  style: { background: 'linear-gradient(135deg, rgba(66,133,244,0.18), rgba(66,133,244,0.10))' },
+                                },
+                                '轉讓房主'
+                              )
+                            : null,
 
 // ✅ AI controls (only host & only in LOBBY)
                         ai && isHost && room?.status === 'LOBBY'
