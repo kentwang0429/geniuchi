@@ -4168,7 +4168,12 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
           try {
             // show curtain if we're not already fully loaded
             setLoadingPhase('GAME');
-            await preloadGameAssetsOnce();
+            // wait for game assets, but guard with an overall timeout to avoid hanging on some mobile browsers
+            const maxWaitMs = 3000;
+            await Promise.race([
+              preloadGameAssetsOnce(),
+              new Promise((resolve) => setTimeout(resolve, maxWaitMs)),
+            ]);
             // let browser paint once or twice (avoid first-frame jank)
             await new Promise((r) => requestAnimationFrame(r));
             await new Promise((r) => requestAnimationFrame(r));
