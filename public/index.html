@@ -2931,6 +2931,7 @@
           gudo_place: '/audio/sfx_guldo_place_placeholder.mp3',
           gudo_skill: '/audio/sfx_guldo_skill_placeholder.mp3',
           jeice_place: '/audio/sfx_jeice_place_placeholder.mp3',
+          jeice_card: '/audio/sfx_jeice_card_placeholder.mp3',
           jeice_skill: '/audio/sfx_jeice_skill_placeholder.mp3',
           undo: '/audio/sfx_ui_click_placeholder.mp3',
         },
@@ -4424,11 +4425,22 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
 
 
         function startJeiceFx(effect) {
-          // Jeice skill: show card 1.5s, then orb
-          showSkillCard(5);
+          // Jeice skill: show card 3.0s, play card+skill sfx, then orb (after board applied)
+          showSkillCard(5, { durationMs: 3000 });
+          try { setFxBlock(4000); } catch (e) {}
+          try {
+            const am = (typeof audioRef !== 'undefined' && audioRef && audioRef.current) ? audioRef.current : null;
+            if (am) {
+              try { am.playSfxKey('jeice_card'); } catch (e) {}
+              try { am.playSfxKey('jeice_skill'); } catch (e) {}
+            }
+          } catch (e) {}
+
           clearFxTimers();
           setFx(null);
 
+          // Start orb AFTER board is applied (board apply delayed to match skill card duration).
+          // Small margin to allow React to render the newly applied piece first.
           fxStartTimerRef.current = setTimeout(() => {
             fxStartTimerRef.current = null;
             setFx(effect);
@@ -4436,7 +4448,7 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
               setFx(null);
               fxTimerRef.current = null;
             }, 900);
-          }, 1500);
+          }, 3100);
         }
 
         function startRecoomeFx(at) {
@@ -4926,8 +4938,29 @@ async function toggleSfx() {
                       lastJeiceSigRef.current = { sig, t: now };
                       startJeiceFx(inferred);
                     }
-                    // ✅ 延遲套用盤面：避免被推棋子提前跳位
-                    delayApplyBoard(nextBoard, 2400);
+                    // ✅ 延遲套用盤面：先在技能卡結束時（3s）只顯示吉斯新放的棋子，
+                    //    再在推擊動畫結束時（3s + 900ms）套上完整盤面（包含被推的棋子）。
+                    try {
+                      const placed = findNewPlacedPos(basePrevBoard, nextBoard);
+                      if (placed) {
+                        const inter = deepCopyBoard(basePrevBoard) || [];
+                        try {
+                          if (!Array.isArray(inter[placed.y])) inter[placed.y] = [];
+                          inter[placed.y][placed.x] = placed.v;
+                        } catch (e) {}
+                        // apply intermediate board at 3000ms (when skill card ends)
+                        setTimeout(() => {
+                          try { setBoard(inter); } catch (e) {}
+                        }, 3000);
+                        // apply final board after orb animation (card 3s + orb ~900ms)
+                        delayApplyBoard(nextBoard, 4000);
+                      } else {
+                        // fallback: apply full board after full duration
+                        delayApplyBoard(nextBoard, 4000);
+                      }
+                    } catch (e) {
+                      delayApplyBoard(nextBoard, 4000);
+                    }
                     delayedApply = true;
                   }
                 }
@@ -4948,7 +4981,24 @@ async function toggleSfx() {
                   const mv = inferMovedToken(basePrevBoard, nextBoard);
                   if (mv) {
                     startGuldoMoveFx(mv);
-                    delayApplyBoard(nextBoard, 2400);
+                    try {
+                      const placed = findNewPlacedPos(prevBoard, nextBoard);
+                      if (placed) {
+                        const inter = deepCopyBoard(prevBoard) || [];
+                        try {
+                          if (!Array.isArray(inter[placed.y])) inter[placed.y] = [];
+                          inter[placed.y][placed.x] = placed.v;
+                        } catch (e) {}
+                        setTimeout(() => {
+                          try { setBoard(inter); } catch (e) {}
+                        }, 3000);
+                        delayApplyBoard(nextBoard, 4000);
+                      } else {
+                        delayApplyBoard(nextBoard, 4000);
+                      }
+                    } catch (e) {
+                      delayApplyBoard(nextBoard, 4000);
+                    }
                     delayedApply = true;
                   }
                 }
@@ -5079,7 +5129,24 @@ async function toggleSfx() {
                       lastJeiceSigRef.current = { sig, t: now };
                       startJeiceFx(inferred);
                     }
-                    delayApplyBoard(nextBoard, 2400);
+                    try {
+                      const placed = findNewPlacedPos(prevBoard, nextBoard);
+                      if (placed) {
+                        const inter = deepCopyBoard(prevBoard) || [];
+                        try {
+                          if (!Array.isArray(inter[placed.y])) inter[placed.y] = [];
+                          inter[placed.y][placed.x] = placed.v;
+                        } catch (e) {}
+                        setTimeout(() => {
+                          try { setBoard(inter); } catch (e) {}
+                        }, 3000);
+                        delayApplyBoard(nextBoard, 4000);
+                      } else {
+                        delayApplyBoard(nextBoard, 4000);
+                      }
+                    } catch (e) {
+                      delayApplyBoard(nextBoard, 4000);
+                    }
                     delayedApply = true;
                   }
                 }
@@ -7573,10 +7640,10 @@ const skillCardArt =
                       'div',
                       { className: 'dockBtns' },
                       isMyTurn && myActiveRoleIndex === 0
-                        ? e('button', { onClick: activateGinyu, style: { background: 'rgba(156,39,176,0.35)' } }, '基紐能力')
+                        ? e('button', { onClick: activateGinyu, style: { background: 'rgba(156,39,176,0.35)' } }, '技能:CHANGE!!!')
                         : null,
                       isMyTurn && myActiveRoleIndex === 4
-                        ? e('button', { onClick: activateGudo, style: { background: 'rgba(76,175,80,0.35)' } }, '古杜能力')
+                        ? e('button', { onClick: activateGudo, style: { background: 'rgba(76,175,80,0.35)' } }, '技能:念力投擲')
                         : null,
                       isMyTurn && myActiveRoleIndex === 5
                         ? e(
