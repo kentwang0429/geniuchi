@@ -2927,6 +2927,7 @@
           burter_beam: '/audio/sfx_burter_beam_placeholder.mp3',
           recoome_place: '/audio/sfx_recoome_place_placeholder.mp3',
           logan_place: '/audio/sfx_logan_place_placeholder.mp3',
+          logan_gray: '/audio/sfx_logan_gray_placeholder.mp3',
           logan_cross: '/audio/sfx_logan_cross_placeholder.mp3',
           gudo_place: '/audio/sfx_guldo_place_placeholder.mp3',
           gudo_skill: '/audio/sfx_guldo_skill_placeholder.mp3',
@@ -3504,7 +3505,9 @@ if (!this.unlocked) {
 
           try { this._beginBgmHoldForVoice(); } catch (e) {}
 
-          const vv = clamp(this.vol.voice * (this._isCoarse ? 1.25 : 1.0), 0, 1);
+          // ✅ 羅根選角音效降低50%音量
+          const voiceVol = roleIndex === 3 ? this.vol.voice * 0.25 : this.vol.voice;
+          const vv = clamp(voiceVol * (this._isCoarse ? 1.25 : 1.0), 0, 1);
           this.voice = this._makeAudio(src, { loop: false, volume: vv });
           try {
             if (this.voice) {
@@ -4335,8 +4338,8 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
             if (skillCardTimerRef.current) clearTimeout(skillCardTimerRef.current);
           } catch (e) {}
           const o = opt || {};
-          // 若呼叫時未指定 duration，基紐（roleIndex===0）、力庫姆（roleIndex===2）與吉斯（roleIndex===5）預設延長為 3000ms，古杜（roleIndex===4）預設 2000ms，其他角色預設 1500ms
-          const durationMs = typeof o.durationMs === 'number' ? o.durationMs : (roleIndex === 0 || roleIndex === 2 || roleIndex === 5 ? 3000 : roleIndex === 4 ? 2000 : 1500);
+          // 若呼叫時未指定 duration，基紐（roleIndex===0）、力庫姆（roleIndex===2）、羅根（roleIndex===3）與吉斯（roleIndex===5）預設延長為 3000ms，古杜（roleIndex===4）預設 2000ms，其他角色預設 1500ms
+          const durationMs = typeof o.durationMs === 'number' ? o.durationMs : (roleIndex === 0 || roleIndex === 2 || roleIndex === 3 || roleIndex === 5 ? 3000 : roleIndex === 4 ? 2000 : 1500);
             setFxBlock(durationMs);
           setSkillCardFx({ roleIndex, t: Date.now(), ...o });
           // 若為基紐（roleIndex === 0），在技能卡出現時播放對應音效
@@ -4349,6 +4352,9 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
                 } else if (roleIndex === 2) {
                   // 力庫姆：在技能卡出現時立即播放 recoome_place
                   am.playSfxKey('recoome_place');
+                } else if (roleIndex === 3) {
+                  // 羅根：在技能卡出現時播放 logan_cross 音效
+                  am.playSfxKey('logan_cross');
                 } else if (roleIndex === 4) {
                   // 古杜：在技能卡出現時播放古杜技能音效
                   am.playSfxKey('gudo_skill');
@@ -4571,6 +4577,10 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
         function startLoganFogFx(center) {
           if (!center) return;
           // gray fog around cross: should not cancel other fog (e.g., trap green fog)
+          
+          // ✅ 只播放灰叉音效，不顯示技能卡
+          try { audioRef.current?.playSfxKey('logan_gray'); } catch (e) {}
+          
           pushOverlayFx({ type: 'logan_fog', center, t: Date.now() }, 3000);
         }
 
@@ -4579,6 +4589,15 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
           // Logan trap: show card 1.5s, then green fog (can coexist) + impact
           showSkillCard(3);
           try { audioRef.current?.playSfxKey('logan_trap'); } catch (e) {}
+          
+          // ✅ 鎖住玩家互動直到羅根技能卡結束（參照巴特）
+          try { if (fxLockTimerRef.current) clearTimeout(fxLockTimerRef.current); } catch (e) {}
+          setFxLocked(true);
+          fxLockTimerRef.current = setTimeout(() => {
+            try { fxLockTimerRef.current = null; } catch (e) {}
+            setFxLocked(false);
+          }, 3000);
+          
           // do NOT clear other FX; this is an overlay
           try { if (fxStartTimerRef.current) clearTimeout(fxStartTimerRef.current); } catch (e) {}
           fxStartTimerRef.current = setTimeout(() => {
@@ -4849,12 +4868,17 @@ async function toggleSfx() {
           const s = connectSocket();
           setSocket(s);
 
-          // ✅ 由 server 發送的音效 key
+          // ✅ 由 server 發送的音效 key（立即播放，不受 UI 更新佇列影響）
           s.on('playSfx', (payload) => {
             try {
               const key = payload?.key;
               if (!key) return;
-              audioRef.current?.playSfxKey(key);
+              // ✅ 使用 setTimeout 0 確保音效優先播放，避免被 UI 更新阻塞
+              setTimeout(() => {
+                try {
+                  audioRef.current?.playSfxKey(key);
+                } catch (e) {}
+              }, 0);
             } catch (e) {}
           });
 
