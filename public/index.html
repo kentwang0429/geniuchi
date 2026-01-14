@@ -6280,7 +6280,7 @@ function createRoom(mode) {
 
 
         // 依序嘗試多個事件名稱（避免你後端事件名還沒定案）
-        function emitTry(eventNames, payload, cb, timeoutMs = 700) {
+        function emitTry(eventNames, payload, cb, timeoutMs = 1500) {
           if (!socket) return cb?.({ ok: false, message: 'socket not ready' });
           const names = Array.isArray(eventNames) ? eventNames.filter(Boolean) : [eventNames];
           let i = 0;
@@ -6290,6 +6290,8 @@ function createRoom(mode) {
             if (done) return;
             if (i >= names.length) {
               done = true;
+              // ✅ 改為 console.warn 避免誤導用戶，因為實際上後端可能已處理但回調延遲
+              console.warn('[emitTry] all event names timed out:', names.join(', '));
               cb?.({ ok: false, message: 'no handler matched (front-end tried events: ' + names.join(', ') + ')' });
               return;
             }
@@ -6305,10 +6307,13 @@ function createRoom(mode) {
               });
             } catch (e) {
               // 直接換下一個
+              console.warn('[emitTry] socket.emit error for event:', ev, e);
             }
 
             timer = setTimeout(() => {
               if (done) return;
+              // ✅ 超時時記錄一下，方便除錯
+              console.warn('[emitTry] timeout for event:', ev, 'trying next...');
               tryOne();
             }, timeoutMs);
           };
