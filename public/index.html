@@ -6391,15 +6391,15 @@ function createRoom(mode) {
         }
 
 
-        // ✅ 新增 AI（房主）
-        function addAiPlayer() {
+        // ✅ 新增 AI（房主） - 支援 aiLevel: 'beginner' | 'mid'
+        function addAiPlayer(aiLevel = 'beginner') {
           audioRef.current?.uiClick();
           const rid = roomRef.current?.id || room?.id;
           if (!rid) return;
 
           emitTry(
             ['addAi', 'addAI', 'addAIPlayer', 'addBot', 'addRobot'],
-            { roomId: rid },
+            { roomId: rid, aiLevel },
             (res) => {
               if (res?.ok && res.room) {
                 roomRef.current = res.room;
@@ -7365,36 +7365,62 @@ function createRoom(mode) {
 
                     e(
                       'div',
-                      { className: 'row', style: { marginTop: 10, flexWrap: 'wrap' } },
-                      e('button', { onClick: readyUp }, '準備完成'),
-
-                      // ✅ 房主：新增 AI
+                      { style: { marginTop: 10 } },
+                      // 第一組：新增 AI 按鈕（房主專用）
                       room?.hostId === socket?.id &&
                         e(
-                          'button',
-                          {
-                            onClick: addAiPlayer,
-                            style: {
-                              background: 'linear-gradient(135deg, rgba(255,193,7,0.30), rgba(255,193,7,0.12))',
-                              border: '1px solid rgba(255,255,255,0.18)',
+                          'div',
+                          { className: 'row', style: { marginBottom: 10, flexWrap: 'wrap' } },
+                          e(
+                            'button',
+                            {
+                              onClick: () => addAiPlayer('beginner'),
+                              style: {
+                                background: 'linear-gradient(135deg, rgba(255,193,7,0.30), rgba(255,193,7,0.12))',
+                                border: '1px solid rgba(255,255,255,0.18)',
+                                marginRight: 8,
+                              },
+                              title: '新增初階 AI（AI醜男程度）',
                             },
-                            title: '由房主新增一位 AI 對手（後端需支援 addAi 事件其一）',
-                          },
-                          '新增 AI'
+                            '新增 AI（初階）'
+                          ),
+                          e(
+                            'button',
+                            {
+                              onClick: () => addAiPlayer('mid'),
+                              className: 'tinyBtn',
+                              style: {
+                                background: 'linear-gradient(135deg, rgba(124,77,255,0.28), rgba(124,77,255,0.12))',
+                                border: '1px solid rgba(255,255,255,0.12)',
+                              },
+                              title: '新增中階 AI（AI凱帥程度）',
+                            },
+                            '新增 AI（中階）'
+                          )
                         ),
 
-                      canStart &&
-                        e(
-                          'button',
-                          {
-                            onClick: startGame,
-                            style: {
-                              background: 'linear-gradient(135deg, rgba(76,175,80,0.38), rgba(76,175,80,0.18))',
-                              border: '1px solid rgba(255,255,255,0.18)',
+                      // 第二組：準備 & START GAME
+                      e(
+                        'div',
+                        { className: 'row', style: { flexWrap: 'wrap', gap: '8px', alignItems: 'center' } },
+                        e('button', { onClick: readyUp }, '準備完成'),
+
+                        canStart &&
+                          e(
+                            'button',
+                            {
+                              onClick: startGame,
+                              style: {
+                                background: 'linear-gradient(135deg, rgba(76,175,80,0.38), rgba(76,175,80,0.18))',
+                                border: '1px solid rgba(255,255,255,0.18)',
+                                padding: '12px 24px',
+                                fontSize: '1.1em',
+                                fontWeight: 'bold',
+                              },
                             },
-                          },
-                          'Start Game'
-                        )
+                            'START GAME'
+                          )
+                      )
                     )
 
                   )

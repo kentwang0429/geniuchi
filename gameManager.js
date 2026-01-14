@@ -92,44 +92,30 @@ class GameManager {
         canOverride: true,
         canUseCross: false,
         place(board, x, y, token) {
-          const cur = board?.[y]?.[x];
-
-          // ✅ 基本保護：座標錯誤
-          if (cur === undefined) throw new Error('座標錯誤');
-
-          // ✅ 不能下在灰叉上
-          if (cur < 0) throw new Error('不能放在叉叉上');
-
-          // ✅ 防呆：不能壓到「同玩家同角色」(同 token = 同 ownerIndex + slot)
-          // - 允許覆蓋對手棋、也允許覆蓋自己另一個 slot 的棋（DUAL）
-          // - 但禁止覆蓋自己當前這個角色的棋
-          if (cur === token) throw new Error('不能覆蓋自己同角色的棋子');
-
+          const v = board?.[y]?.[x];
+          if (v === undefined) throw new Error('座標錯誤');
+          // 不能蓋灰叉（負值代表灰叉）
+          if (v < 0) throw new Error('不能下在灰叉上');
+          // 覆蓋或空格皆可
           board[y][x] = token;
         },
       },
-
       3: {
         name: '羅根',
         maxMoves: 2,
         canOverride: false,
         canUseCross: true,
-        place(board, x, y, token, playerIndex, placedThisTurn) {
-          if (placedThisTurn === 0) {
-            // 第 1 手：可放空格 or 自己的灰叉上
-            if (board[y][x] === -(playerIndex + 1)) {
-              board[y][x] = token;
-            } else if (board[y][x] === 0) {
-              board[y][x] = token;
-            } else {
-              throw new Error('此處不可放置');
-            }
-          } else if (placedThisTurn === 1) {
-            // 第 2 手：灰叉只能放空格
-            if (board[y][x] !== 0) throw new Error('灰叉必須放在空格上');
-            board[y][x] = -(playerIndex + 1);
+        place(board, x, y, token, playerIndex, placedThisTurnBefore) {
+          if (placedThisTurnBefore === 0) {
+            // 第一手：可下空格或自己的灰叉（負值 -(playerIndex+1)）
+            const v = board?.[y]?.[x];
+            if (v === undefined) throw new Error('座標錯誤');
+            if (v !== 0 && v !== -(playerIndex + 1)) throw new Error('無法下在該位置');
+            board[y][x] = token;
           } else {
-            throw new Error('超出本回合可下棋數量');
+            // 第二手：只能下空格，並放灰叉（負值）
+            if (board[y][x] !== 0) throw new Error('該位置已有棋子');
+            board[y][x] = -(playerIndex + 1);
           }
         },
       },
@@ -670,6 +656,7 @@ class GameManager {
 
         const acted = this._aiDoOneAction(roomId);
         if (!acted) break; // 萬一找不到動作就停止
+        if (acted === 'sleep') break; // 暫停，稍後繼續（例如巴特第一手後給前端 FX 時間）
       }
     } finally {
       room._aiBusy = false;
@@ -688,25 +675,450 @@ class GameManager {
     // 用假的 socket 走你既有的驗證流程（不需要 AI 真的連線）
     const fakeSocket = { id: player.id };
 
+    // 決定 AI 等級（可由 player.aiLevel 或 room.aiLevel 指定，預設 beginner）
+    const aiLevel = this._getAiLevel(room, player);
+
+    // ✅ NEW: 中階 AI 主動破壞對手連線威脅（連3+）
+    if (aiLevel === 'mid' && (player.placedThisTurn || 0) === 0) {
+      // 掃描對手連線威脅
+      const countOppThreats = () => {
+        let count = 0;
+        const board = room.board;
+        const N = board.length;
+        const targetN = room.targetN;
+        const minLine = Math.max(3, Math.floor(targetN * 0.6));
+        const oppTokens = [];
+        
+        for (let oi = 0; oi < (room.players?.length || 0); oi++) {
+          if (oi === playerIndex) continue;
+          const owner = room.players[oi];
+          if (!owner) continue;
+          if (room.mode === 'DUAL') {
+            const r1 = this._getActiveRoleIndex(room, owner, 1);
+            if (typeof r1 === 'number') oppTokens.push(this._tokenOf(oi, 1));
+            const r2 = this._getActiveRoleIndex(room, owner, 2);
+            if (typeof r2 === 'number') oppTokens.push(this._tokenOf(oi, 2));
+          } else {
+            const r = this._getActiveRoleIndex(room, owner, 1);
+            if (typeof r === 'number') oppTokens.push(this._tokenOf(oi, 1));
+          }
+        }
+        
+        for (const opp of oppTokens) {
+          for (let y = 0; y < N; y++) {
+            for (let x = 0; x < N; x++) {
+              if (board[y][x] !== opp) continue;
+              const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+              for (const [dx, dy] of dirs) {
+                let len = 1;
+                for (let k = 1; k < minLine; k++) {
+                  const nx = x + dx * k, ny = y + dy * k;
+                  if (nx < 0 || nx >= N || ny < 0 || ny >= N) break;
+                  if (board[ny][nx] === opp) len++;
+                  else break;
+                }
+                if (len >= 3) count++;
+              }
+            }
+          }
+        }
+        return count;
+      };
+
+      // ✅ 特殊檢測：若對手是力庫姆且有連線威脅，古杜應優先用技能移動對手棋子（因為落子擋無法防止覆蓋）
+      const checkRecoomeThreatForGuldo = () => {
+        const board = room.board;
+        for (let oi = 0; oi < (room.players?.length || 0); oi++) {
+          if (oi === playerIndex) continue;
+          const owner = room.players[oi];
+          if (!owner) continue;
+          const slots = room.mode === 'DUAL' ? [1, 2] : [1];
+          for (const sl of slots) {
+            const roleIdx = this._getActiveRoleIndex(room, owner, sl);
+            if (roleIdx === 2) { // Recoome
+              const token = this._tokenOf(oi, sl);
+              let lineCount = 0;
+              for (let y = 0; y < board.length; y++) {
+                for (let x = 0; x < board.length; x++) {
+                  if (board[y][x] !== token) continue;
+                  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+                  for (const [dx, dy] of dirs) {
+                    let len = 1;
+                    for (let k = 1; k < 3; k++) {
+                      const nx = x + dx * k, ny = y + dy * k;
+                      if (nx < 0 || nx >= board.length || ny < 0 || ny >= board.length) break;
+                      if (board[ny][nx] === token) len++;
+                      else break;
+                    }
+                    if (len >= 3) lineCount++;
+                  }
+                }
+              }
+              if (lineCount > 0) return true; // 力庫姆有連3以上
+            }
+          }
+        }
+        return false;
+      };
+
+      if (roleIndex === 4 && checkRecoomeThreatForGuldo() && !player.usedGudoThisTurn) {
+        // 古杜面對力庫姆連線時，優先移動對手棋子
+        const used = this._aiTryGuldoMove(fakeSocket, roomId);
+        if (used) return true;
+      }
+
+      const oppThreats = countOppThreats();
+      if (oppThreats > 0 && roleIndex !== 5) {
+        // 優先嘗試技能破壞連線
+        if (roleIndex === 0 && !player.usedGinyuThisTurn) {
+          const used = this._aiTryGinyuSwap(fakeSocket, roomId);
+          if (used) return true;
+        }
+        if (roleIndex === 4 && !player.usedGudoThisTurn) {
+          const used = this._aiTryGuldoMove(fakeSocket, roomId);
+          if (used) return true;
+        }
+      }
+    }
+
+    // 嘗試先找「必須阻擋的對手即時勝利」，若有則優先用技能阻擋（基紐/古杜），或直接落子阻擋
+    try {
+      const placedThisTurnBefore = player.placedThisTurn || 0;
+      const token = this._tokenOf(playerIndex, slot);
+      const legalCandidatesForBlock = this._aiGatherAllLegalCells(room, this._getActiveRoleIndex(room, player, slot), token, placedThisTurnBefore, playerIndex);
+      const block = this._aiFindImmediateBlockMove(room, legalCandidatesForBlock, playerIndex);
+      if (block) {
+        const isRecoomeThreat = Array.isArray(block.threatRoles) && block.threatRoles.includes(2);
+
+        // 若角色可用技能，先嘗試技能
+        if (roleIndex === 0 && (player.placedThisTurn || 0) === 0 && !player.usedGinyuThisTurn) {
+          const used = this._aiTryGinyuSwap(fakeSocket, roomId);
+          if (used) {
+            // ✅ 基紐技能需要 3320ms 動畫，延遲後再繼續
+            try {
+              if (room._aiTimer) { clearTimeout(room._aiTimer); room._aiTimer = null; }
+            } catch (e) {}
+            const delay = 3400 + Math.floor(Math.random() * 200);
+            room._aiTimer = setTimeout(() => {
+              room._aiTimer = null;
+              this._aiThinkAndAct(roomId);
+            }, delay);
+            return 'sleep';
+          }
+        }
+        if (roleIndex === 4 && (player.placedThisTurn || 0) === 0 && !player.usedGudoThisTurn) {
+          const used = this._aiTryGuldoMove(fakeSocket, roomId);
+          if (used) {
+            // ✅ 古杜技能需要 4000ms 動畫，延遲後再繼續
+            try {
+              if (room._aiTimer) { clearTimeout(room._aiTimer); room._aiTimer = null; }
+            } catch (e) {}
+            const delay = 4100 + Math.floor(Math.random() * 200);
+            room._aiTimer = setTimeout(() => {
+              room._aiTimer = null;
+              this._aiThinkAndAct(roomId);
+            }, delay);
+            return 'sleep';
+          }
+        }
+        if (isRecoomeThreat && roleIndex === 5) {
+          const used = this._aiPlayJeice(fakeSocket, roomId);
+          if (used) {
+            // ✅ 吉斯技能需要 4000ms 動畫，延遲後再繼續
+            try {
+              if (room._aiTimer) { clearTimeout(room._aiTimer); room._aiTimer = null; }
+            } catch (e) {}
+            const delay = 4100 + Math.floor(Math.random() * 200);
+            room._aiTimer = setTimeout(() => {
+              room._aiTimer = null;
+              this._aiThinkAndAct(roomId);
+            }, delay);
+            return 'sleep';
+          }
+        }
+
+        // 技能沒用或不適用：直接落子擋
+        let okBlock = false;
+        this.placePiece(fakeSocket, { roomId, x: block.x, y: block.y }, (res) => { okBlock = !!res?.ok; });
+        if (okBlock) return true;
+      }
+    } catch (e) {}
+
     // 1) 吉斯：優先用技能（含擊退）
     if (roleIndex === 5) {
-      return this._aiPlayJeice(fakeSocket, roomId);
+      const used = this._aiPlayJeice(fakeSocket, roomId);
+      if (used) {
+        // ✅ 吉斯技能需要 4000ms 播放動畫（技能卡 3000ms + 魔球 900ms），延遲後再繼續
+        try {
+          if (room._aiTimer) { clearTimeout(room._aiTimer); room._aiTimer = null; }
+        } catch (e) {}
+        const delay = 4100 + Math.floor(Math.random() * 200);
+        room._aiTimer = setTimeout(() => {
+          room._aiTimer = null;
+          this._aiThinkAndAct(roomId);
+        }, delay);
+        return 'sleep';
+      }
     }
 
     // 2) 基紐：如果未落子且未用過能力，嘗試用交換（有利才用）
     if (roleIndex === 0 && (player.placedThisTurn || 0) === 0 && !player.usedGinyuThisTurn) {
       const used = this._aiTryGinyuSwap(fakeSocket, roomId);
-      if (used) return true;
+      if (used) {
+        // ✅ 基紐技能需要 3320ms 播放動畫（技能卡 3000ms + 魔球 320ms），延遲後再繼續
+        try {
+          if (room._aiTimer) { clearTimeout(room._aiTimer); room._aiTimer = null; }
+        } catch (e) {}
+        const delay = 3400 + Math.floor(Math.random() * 200);
+        room._aiTimer = setTimeout(() => {
+          room._aiTimer = null;
+          this._aiThinkAndAct(roomId);
+        }, delay);
+        return 'sleep';
+      }
     }
 
     // 3) 古杜：如果未落子且未用過能力，嘗試搬棋（有利才用）
     if (roleIndex === 4 && (player.placedThisTurn || 0) === 0 && !player.usedGudoThisTurn) {
       const used = this._aiTryGuldoMove(fakeSocket, roomId);
-      if (used) return true;
+      if (used) {
+        // ✅ 古杜技能需要 4000ms 播放動畫（技能卡 2000ms + 魔球 900ms + buffer），延遲後再繼續
+        try {
+          if (room._aiTimer) { clearTimeout(room._aiTimer); room._aiTimer = null; }
+        } catch (e) {}
+        const delay = 4100 + Math.floor(Math.random() * 200);
+        room._aiTimer = setTimeout(() => {
+          room._aiTimer = null;
+          this._aiThinkAndAct(roomId);
+        }, delay);
+        return 'sleep';
+      }
     }
 
     // 4) 一般落子（含巴特/羅根第二手）
+    const placedBefore = player.placedThisTurn || 0;
+    const role = this.roleAbilities[roleIndex];
+
+    // 若是巴特（兩手），在第一手成功後暫停一小段時間讓前端播放 FX
+    if (roleIndex === 1 && placedBefore === 0 && role && role.maxMoves > 1) {
+      const ok = aiLevel === 'mid' ? this._aiPlaceMidLevel(fakeSocket, roomId) : this._aiPlaceNormal(fakeSocket, roomId);
+      if (ok) {
+        try {
+          if (room._aiTimer) { clearTimeout(room._aiTimer); room._aiTimer = null; }
+        } catch (e) {}
+        const delay = 450 + Math.floor(Math.random() * 200);
+        room._aiTimer = setTimeout(() => {
+          room._aiTimer = null;
+          this._aiThinkAndAct(roomId);
+        }, delay);
+        return 'sleep';
+      }
+      return ok;
+    }
+
+    if (aiLevel === 'mid') return this._aiPlaceMidLevel(fakeSocket, roomId);
     return this._aiPlaceNormal(fakeSocket, roomId);
+  }
+
+  // 決定 AI 等級
+  _getAiLevel(room, player) {
+    if (player && typeof player.aiLevel === 'string') return player.aiLevel;
+    if (room && typeof room.aiLevel === 'string') return room.aiLevel;
+    return 'beginner';
+  }
+
+  // 中階 AI：選擇性 2-ply 評估（輕量化），在 DUAL 模式會偏好與自家其他棋互相掩護
+  _aiPlaceMidLevel(fakeSocket, roomId) {
+    const room = this.rooms[roomId];
+    if (!room) return false;
+    const playerIndex = room.turnIndex;
+    const player = room.players[playerIndex];
+    const slot = this._getActiveSlot(room);
+    const roleIndex = this._getActiveRoleIndex(room, player, slot);
+    const role = this.roleAbilities[roleIndex];
+    if (!role) return false;
+
+    const placedThisTurnBefore = player.placedThisTurn || 0;
+    const token = this._tokenOf(playerIndex, slot);
+
+    const includeOverride = roleIndex === 2;
+    const includeOwnCrossAsEmptyForLoganFirst = roleIndex === 3 && placedThisTurnBefore === 0;
+    let candidates = this._aiGatherCandidateCells(room, includeOverride, includeOwnCrossAsEmptyForLoganFirst, playerIndex);
+
+    const board = room.board;
+    const N = board.length;
+
+    // 計算對手連線威脅（連3+）：數量越多、越接近目標 N，威脅越高
+    const countOppLineThreats = (board, targetN = room.targetN) => {
+      let count = 0;
+      const oppTokens = [];
+      for (let oi = 0; oi < (room.players?.length || 0); oi++) {
+        if (oi === playerIndex) continue;
+        const owner = room.players[oi];
+        if (!owner) continue;
+        if (room.mode === 'DUAL') {
+          const r1 = this._getActiveRoleIndex(room, owner, 1);
+          if (typeof r1 === 'number') oppTokens.push(this._tokenOf(oi, 1));
+          const r2 = this._getActiveRoleIndex(room, owner, 2);
+          if (typeof r2 === 'number') oppTokens.push(this._tokenOf(oi, 2));
+        } else {
+          const r = this._getActiveRoleIndex(room, owner, 1);
+          if (typeof r === 'number') oppTokens.push(this._tokenOf(oi, 1));
+        }
+      }
+      const minLine = Math.max(3, Math.floor(targetN * 0.6)); // 連3或60% 目標線數
+      for (const opp of oppTokens) {
+        for (let y = 0; y < board.length; y++) {
+          for (let x = 0; x < board.length; x++) {
+            if (board[y][x] !== opp) continue;
+            // 檢查從此格出發的4個方向
+            const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+            for (const [dx, dy] of dirs) {
+              let len = 1;
+              for (let k = 1; k < minLine; k++) {
+                const nx = x + dx * k, ny = y + dy * k;
+                if (nx < 0 || nx >= board.length || ny < 0 || ny >= board.length) break;
+                if (board[ny][nx] === opp) len++;
+                else break;
+              }
+              if (len >= 3) count++;
+            }
+          }
+        }
+      }
+      return count;
+    };
+
+    let legalCandidates = [];
+    if (candidates.length) {
+      for (const p of candidates) {
+        const v0 = board?.[p.y]?.[p.x];
+        if (v0 === undefined) continue;
+        try {
+          if (roleIndex === 3) {
+            this.roleAbilities[3].place(board, p.x, p.y, token, playerIndex, placedThisTurnBefore);
+          } else {
+            role.place(board, p.x, p.y, token);
+          }
+          board[p.y][p.x] = v0;
+          legalCandidates.push({ x: p.x, y: p.y, v0 });
+        } catch (e) {
+          board[p.y][p.x] = v0;
+        }
+      }
+    }
+
+    if (!legalCandidates.length) {
+      legalCandidates = this._aiGatherAllLegalCells(room, roleIndex, token, placedThisTurnBefore, playerIndex);
+      if (!legalCandidates.length) return false;
+    }
+
+    // 若有直接必勝，立即下
+    for (const p of legalCandidates) {
+      if (this._aiWouldWinIfPlace(room, p.x, p.y, token, roleIndex, placedThisTurnBefore, playerIndex)) {
+        let ok = false;
+        this.placePiece(fakeSocket, { roomId, x: p.x, y: p.y }, (res) => { ok = !!res?.ok; });
+        return ok;
+      }
+    }
+
+    // 針對每個候選模擬下一手（2-ply）：評分 = 我方啟始評分 - 對手最佳回應威脅
+    const myBaseScore = (x, y) => {
+      let score = 0;
+      score += this._aiEvalCenter(N, x, y) * 0.9;
+      score += this._aiCountNeighbors(board, x, y) * 1.8;
+      if (roleIndex === 3 && placedThisTurnBefore === 1) score += this._aiCountNeighbors(board, x, y) * 2.4;
+      if (roleIndex === 2 && board[y][x] > 0 && board[y][x] !== token) score += 6;
+
+      // DUAL 模式偏好與自家其他棋互相掩護：計算到任一自家棋的最近曼哈頓距離，距離越近給越多分
+      if (room.mode === 'DUAL') {
+        const tok1 = this._tokenOf(playerIndex, 1);
+        const tok2 = this._tokenOf(playerIndex, 2);
+        let minDist = Infinity;
+        for (let yy = 0; yy < N; yy++) for (let xx = 0; xx < N; xx++) {
+          const v = board[yy][xx];
+          if (!(v > 0)) continue;
+          if (v === tok1 || v === tok2) {
+            const d = Math.abs(xx - x) + Math.abs(yy - y);
+            if (d === 0) continue;
+            if (d < minDist) minDist = d;
+          }
+        }
+        if (minDist < Infinity) {
+          const bonus = Math.max(0, 5 - minDist) * 2; // 距離 1 給最大 8 分，距離 4 給 2 分
+          score += bonus;
+          if (minDist <= 1) score += 3; // 鄰接額外鼓勵
+        }
+      }
+
+      return score;
+    };
+
+    const opponentThreatScore = (simBoard) => {
+      // 快速檢查對手是否有直接必勝點（any immediate win)
+      for (let oi = 0; oi < (room.players?.length || 0); oi++) {
+        if (oi === playerIndex) continue;
+        const owner = room.players[oi];
+        if (!owner) continue;
+        const oppTokenSlots = room.mode === 'DUAL' ? [1,2] : [1];
+        for (const slotIdx of oppTokenSlots) {
+          const oppRole = this._getActiveRoleIndex(room, owner, slotIdx);
+          const oppToken = this._tokenOf(oi, slotIdx);
+          // 採候選半徑掃描
+          const oppCandidates = this._aiGatherCandidateCells(room, false, false, oi).filter((p) => simBoard[p.y][p.x] === 0);
+          for (const p of oppCandidates) {
+            const tmp = simBoard[p.y][p.x];
+            try {
+              if (oppRole === 3) this.roleAbilities[3].place(simBoard, p.x, p.y, oppToken, oi, 0);
+              else this.roleAbilities[oppRole].place(simBoard, p.x, p.y, oppToken);
+            } catch (e) { simBoard[p.y][p.x] = tmp; continue; }
+            if (simBoard[p.y][p.x] > 0) {
+              const n = oppRole === 1 ? 6 : room.targetN;
+              if (this.checkWinner(simBoard, p.x, p.y, oppToken, n)) { simBoard[p.y][p.x] = tmp; return 1; }
+            }
+            simBoard[p.y][p.x] = tmp;
+          }
+        }
+      }
+      return 0;
+    };
+
+    let best = null;
+    for (const p of legalCandidates) {
+      const v0 = board[p.y][p.x];
+      // 模擬我的落子
+      try {
+        if (roleIndex === 3) this.roleAbilities[3].place(board, p.x, p.y, token, playerIndex, placedThisTurnBefore);
+        else role.place(board, p.x, p.y, token);
+        const placedV = board[p.y][p.x];
+
+        // 建立模擬棋盤複本給對手檢查
+        const sim = board.map((r) => r.slice());
+        // 計算對手是否能立刻回應致勝
+        const oppThreat = opponentThreatScore(sim);
+
+        // 基礎分數
+        let score = myBaseScore(p.x, p.y) - (oppThreat * 1000);
+
+        // 新增：破壞對手連線威脅的加分
+        const threatsBefore = countOppLineThreats(board);
+        const threatsAfter = countOppLineThreats(sim);
+        const threatReduction = (threatsBefore - threatsAfter) * 50; // 每破壞一個連3 +50
+        score += threatReduction;
+
+        board[p.y][p.x] = v0;
+
+        if (!best || score > best.score) best = { x: p.x, y: p.y, score, placedV };
+      } catch (e) {
+        board[p.y][p.x] = v0;
+      }
+    }
+
+    if (!best) return false;
+
+    let ok = false;
+    this.placePiece(fakeSocket, { roomId, x: best.x, y: best.y }, (res) => { ok = !!res?.ok; });
+    return ok;
   }
 
   // ===== AI: Candidate cells (靠近戰場) =====
@@ -882,17 +1294,202 @@ class GameManager {
         if (board[y][x] > 0) {
           const n = opp.roleIndex === 1 ? 6 : room.targetN; // 巴特 6 連線
           const win = this.checkWinner(board, x, y, opp.token, n);
-          board[y][x] = tmp;
-          return win;
+          if (win) {
+            board[y][x] = tmp;
+            return true;
+          }
         }
 
+        // 若放置後沒有直接獲勝，額外模擬一些角色的技能結果，看看是否能在技能後形成勝利
+        // 目前只針對：基紐(0) 的交換、古杜(4) 的移動（模擬自家單顆移動到鄰格）
+        // 這些模擬都是保守的、有限的搜尋以避免爆炸性組合
+        const tryWinAfterSkill = () => {
+          const anyWinForToken = (token, n) => {
+            for (let yy = 0; yy < room.size; yy++) {
+              for (let xx = 0; xx < room.size; xx++) {
+                if (board[yy][xx] === token) {
+                  if (this.checkWinner(board, xx, yy, token, n)) return true;
+                }
+              }
+            }
+            return false;
+          };
+          // Ginyu: can swap this placed token with any enemy normal token in same row/col
+          if (opp.roleIndex === 0) {
+            const placedToken = opp.token;
+            // 搜尋同行或同列的敵方正常棋（>0 且 owner 不同）
+            for (let cx = 0; cx < room.size; cx++) {
+              if (cx === x) continue;
+              const v = board[y][cx];
+              if (v > 0) {
+                const ownerOfV = Math.floor((v - 1) / 2);
+                if (ownerOfV !== opp.ownerIndex) {
+                  // swap (x,y) <-> (cx,y)
+                  const tmp2 = board[y][cx];
+                  board[y][cx] = board[y][x];
+                  board[y][x] = tmp2;
+                  const winNow = anyWinForToken(placedToken, room.targetN);
+                  // restore
+                  board[y][x] = board[y][cx];
+                  board[y][cx] = tmp2;
+                  if (winNow) return true;
+                }
+              }
+            }
+            for (let cy = 0; cy < room.size; cy++) {
+              if (cy === y) continue;
+              const v = board[cy][x];
+              if (v > 0) {
+                const ownerOfV = Math.floor((v - 1) / 2);
+                if (ownerOfV !== opp.ownerIndex) {
+                  const tmp2 = board[cy][x];
+                  board[cy][x] = board[y][x];
+                  board[y][x] = tmp2;
+                  const winNow = anyWinForToken(placedToken, room.targetN);
+                  board[y][x] = board[cy][x];
+                  board[cy][x] = tmp2;
+                  if (winNow) return true;
+                }
+              }
+            }
+          }
+
+          // Guldo: can move one of own normal tokens to an adjacent empty cell
+          if (opp.roleIndex === 4) {
+            const owner = opp.ownerIndex;
+            for (let oy = 0; oy < room.size; oy++) {
+              for (let ox = 0; ox < room.size; ox++) {
+                const v = board[oy][ox];
+                if (v > 0) {
+                  const ownerOfV = Math.floor((v - 1) / 2);
+                  if (ownerOfV !== owner) continue;
+                  // 試著把這顆棋移到周圍 8 格的空格
+                  for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                      if (dx === 0 && dy === 0) continue;
+                      const nx = ox + dx;
+                      const ny = oy + dy;
+                      if (nx < 0 || ny < 0 || nx >= room.size || ny >= room.size) continue;
+                      if (board[ny][nx] !== 0) continue;
+                      // move ox,oy -> nx,ny
+                      const tmp2 = board[ny][nx];
+                      board[ny][nx] = board[oy][ox];
+                      board[oy][ox] = 0;
+                      const movedToken = board[ny][nx];
+                      const winNow = anyWinForToken(movedToken, room.targetN);
+                      // restore
+                      board[oy][ox] = board[ny][nx];
+                      board[ny][nx] = tmp2;
+                      if (winNow) return true;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Jeice: 放下後可以選擇擊退相鄰敵方正常棋（向外推 1~2 格），模擬各種可能的擊退看看是否可造成我方勝利
+          if (opp.roleIndex === 5) {
+            const ox = x, oy = y;
+            for (let ty = oy - 1; ty <= oy + 1; ty++) {
+              for (let tx = ox - 1; tx <= ox + 1; tx++) {
+                if (tx < 0 || ty < 0 || tx >= room.size || ty >= room.size) continue;
+                if (tx === ox && ty === oy) continue;
+                const tv = board[ty][tx];
+                if (!(tv > 0)) continue;
+                const ownerOfV = Math.floor((tv - 1) / 2);
+                if (ownerOfV === opp.ownerIndex) continue; // 只能擊退敵方
+
+                const dx = Math.sign(tx - ox);
+                const dy = Math.sign(ty - oy);
+                if (dx === 0 && dy === 0) continue;
+
+                const oneX = tx + dx, oneY = ty + dy;
+                const twoX = tx + dx * 2, twoY = ty + dy * 2;
+
+                // 優先嘗試推到兩格，若不行再嘗試一格
+                const tryPositions = [];
+                if (oneX >= 0 && oneY >= 0 && oneX < room.size && oneY < room.size) {
+                  if (board[oneY][oneX] === 0) tryPositions.push({ nx: oneX, ny: oneY });
+                }
+                if (twoX >= 0 && twoY >= 0 && twoX < room.size && twoY < room.size) {
+                  if (board[twoY][twoX] === 0) tryPositions.unshift({ nx: twoX, ny: twoY });
+                }
+
+                for (const pos of tryPositions) {
+                  const tmpFrom = board[ty][tx];
+                  const tmpTo = board[pos.ny][pos.nx];
+                  board[pos.ny][pos.nx] = board[ty][tx];
+                  board[ty][tx] = 0;
+                  // 放下後的我方 token 也可能與場上其他 token 形成連線，因此檢查我方任何 token 是否勝利
+                  const winNow = anyWinForToken(opp.token, room.targetN);
+                  // restore
+                  board[ty][tx] = tmpFrom;
+                  board[pos.ny][pos.nx] = tmpTo;
+                  if (winNow) return true;
+                }
+              }
+            }
+          }
+
+          // Burter: 每回合兩手，若把 (x,y) 當作第一手，模擬第二手在任意空格是否可達成 6 連
+          if (opp.roleIndex === 1) {
+            const owner = opp.ownerIndex;
+            const btoken = opp.token;
+            for (let sy = 0; sy < room.size; sy++) {
+              for (let sx = 0; sx < room.size; sx++) {
+                if (board[sy][sx] !== 0) continue;
+                // 第二手放在 sx,sy
+                board[sy][sx] = btoken;
+                const winNow = this.checkWinner(board, sx, sy, btoken, 6);
+                board[sy][sx] = 0;
+                if (winNow) return true;
+              }
+            }
+          }
+
+          // Logan: 第二手會下灰叉（負值代表灰叉），模擬第二手放灰叉是否會間接造成第一手的勝利
+          if (opp.roleIndex === 3) {
+            const owner = opp.ownerIndex;
+            const crossVal = -(owner + 1);
+            for (let sy = 0; sy < room.size; sy++) {
+              for (let sx = 0; sx < room.size; sx++) {
+                if (board[sy][sx] !== 0) continue;
+                board[sy][sx] = crossVal;
+                const winNow = anyWinForToken(opp.token, room.targetN);
+                board[sy][sx] = 0;
+                if (winNow) return true;
+              }
+            }
+          }
+
+          return false;
+        };
+
+        const skillWin = tryWinAfterSkill();
         board[y][x] = tmp;
-        return false;
+        return skillWin;
       } catch (e) {
         board[y][x] = tmp;
         return false;
       }
     };
+
+    // 先預掃 Recoome（覆蓋）可能的一手致勝點：允許覆蓋非灰叉（>=0）
+    const recoomeWinCells = new Set();
+    const recoomeOpps = oppTokens.filter((o) => o.roleIndex === 2);
+    if (recoomeOpps.length) {
+      for (const opp of recoomeOpps) {
+        for (let yy = 0; yy < N; yy++) {
+          for (let xx = 0; xx < N; xx++) {
+            if (board[yy][xx] < 0) continue; // 不能覆蓋灰叉
+            if (wouldOppWinAt(xx, yy, opp)) {
+              recoomeWinCells.add(`${xx},${yy}`);
+            }
+          }
+        }
+      }
+    }
 
     // =========================
     // (A) 先擋「一手必勝」(原本邏輯)
@@ -901,11 +1498,23 @@ class GameManager {
 
     for (const p of candidates) {
       let threatCount = 0;
+      const threatRoles = new Set();
       for (const opp of oppTokens) {
-        if (wouldOppWinAt(p.x, p.y, opp)) threatCount++;
+        if (opp.roleIndex === 2) {
+          if (recoomeWinCells.has(`${p.x},${p.y}`)) {
+            threatCount++;
+            threatRoles.add(2);
+          }
+        } else {
+          if (wouldOppWinAt(p.x, p.y, opp)) {
+            threatCount++;
+            threatRoles.add(opp.roleIndex);
+          }
+        }
       }
       if (threatCount > 0) {
-        if (!best1 || threatCount > best1.threatCount) best1 = { ...p, threatCount };
+        const cand = { ...p, threatCount, threatRoles: Array.from(threatRoles) };
+        if (!best1 || threatCount > best1.threatCount) best1 = cand;
       }
     }
 
@@ -1249,15 +1858,69 @@ class GameManager {
     const simulateSwapScore = (sx, sy, tx, ty) => {
       const a = board[sy][sx];
       const b = board[ty][tx];
+
+      // 計算交換前的威脅數
+      const gatherCandidatesFromBoard = (bd) => {
+        const pts = new Set();
+        for (let yy = 0; yy < bd.length; yy++) for (let xx = 0; xx < bd.length; xx++) {
+          if (bd[yy][xx] === 0) continue;
+          for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+            const nx = xx + dx, ny = yy + dy;
+            if (nx < 0 || ny < 0 || nx >= bd.length || ny >= bd.length) continue;
+            if (bd[ny][nx] === 0) pts.add(nx + ',' + ny);
+          }
+        }
+        return Array.from(pts).map((k) => { const [x,y]=k.split(',').map(Number); return {x,y}; });
+      };
+
+      const countImmediateOpponentWins = () => {
+        let cnt = 0;
+        const cands = gatherCandidatesFromBoard(board);
+        for (let oi = 0; oi < (room.players?.length || 0); oi++) {
+          if (oi === playerIndex) continue;
+          const owner = room.players[oi]; if (!owner) continue;
+          const slots = room.mode === 'DUAL' ? [1,2] : [1];
+          for (const sl of slots) {
+            const oppRole = this._getActiveRoleIndex(room, owner, sl);
+            const oppToken = this._tokenOf(oi, sl);
+            for (const p of cands) {
+              const tmp = board[p.y][p.x];
+              try {
+                if (oppRole === 3) this.roleAbilities[3].place(board, p.x, p.y, oppToken, oi, 0);
+                else this.roleAbilities[oppRole].place(board, p.x, p.y, oppToken);
+              } catch (e) { board[p.y][p.x] = tmp; continue; }
+              if (board[p.y][p.x] > 0) {
+                const n = oppRole === 1 ? 6 : room.targetN;
+                if (this.checkWinner(board, p.x, p.y, oppToken, n)) cnt++;
+              }
+              board[p.y][p.x] = tmp;
+            }
+          }
+        }
+        return cnt;
+      };
+
+      const beforeThreats = countImmediateOpponentWins();
+
+      // 執行交換
       board[sy][sx] = b;
       board[ty][tx] = a;
 
+      // 計算交換後的威脅數
+      const afterThreats = countImmediateOpponentWins();
+
+      // 計分
       let score = 0;
       const winner = this.checkBoardForAnyWinner(room);
       if (winner === playerIndex) score += 100000;
 
       score += (this._aiEvalCenter(N, tx, ty) + this._aiEvalCenter(N, sx, sy)) * 0.2;
 
+      // 若能減少對手威脅，大幅加分
+      const threatReduction = beforeThreats - afterThreats;
+      if (threatReduction > 0) score += threatReduction * 80;
+
+      // revert
       board[sy][sx] = a;
       board[ty][tx] = b;
       return score;
@@ -1275,7 +1938,7 @@ class GameManager {
       }
     }
 
-    if (!best || best.score < 200) {
+    if (!best || best.score < 50) {
       this.ginyuCancel(fakeSocket, { roomId }, () => {});
       return false;
     }
@@ -1307,15 +1970,102 @@ class GameManager {
 
     const scoreMove = (tx, ty, nx, ny) => {
       const tv = board[ty][tx];
+      
+      // ✅ 檢查要移動的棋子是否在對手連線中（給予破壞連線的高額獎勵）
+      const isInLine = () => {
+        const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+        for (const [dx, dy] of dirs) {
+          let len = 1;
+          for (let k = 1; k < 4; k++) {
+            const checkX = tx + dx * k, checkY = ty + dy * k;
+            if (checkX < 0 || checkX >= N || checkY < 0 || checkY >= N) break;
+            if (board[checkY][checkX] === tv) len++;
+            else break;
+          }
+          for (let k = 1; k < 4; k++) {
+            const checkX = tx - dx * k, checkY = ty - dy * k;
+            if (checkX < 0 || checkX >= N || checkY < 0 || checkY >= N) break;
+            if (board[checkY][checkX] === tv) len++;
+            else break;
+          }
+          if (len >= 3) return len; // 回傳連線長度
+        }
+        return 0;
+      };
+
+      const lineLen = isInLine();
+      
       board[ty][tx] = 0;
       board[ny][nx] = tv;
 
       let score = 0;
-      score += -this._aiEvalCenter(N, nx, ny) * 0.6;
-      score += this._aiCountNeighbors(board, tx, ty) * 1.0;
+      
+      // 破壞連線獎勵
+      if (lineLen >= 3) score += lineLen * 100; // 連3 +300, 連4 +400
+      
+      // 移動後新位置的評分
+      score += this._aiEvalCenter(N, nx, ny) * 0.5;
+      score += this._aiCountNeighbors(board, nx, ny) * 1.5;
+      // 舊位置清空後的評分
+      score += this._aiCountNeighbors(board, tx, ty) * 0.5;
 
       const winner = this.checkBoardForAnyWinner(room);
       if (winner === room.turnIndex) score += 60000;
+
+      // 評估此移動是否能減少對手一手致勝點
+      const gatherCandidatesFromBoard = (bd) => {
+        const pts = new Set();
+        for (let yy = 0; yy < bd.length; yy++) for (let xx = 0; xx < bd.length; xx++) {
+          if (bd[yy][xx] === 0) continue;
+          for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+            const nx2 = xx + dx, ny2 = yy + dy;
+            if (nx2 < 0 || ny2 < 0 || nx2 >= bd.length || ny2 >= bd.length) continue;
+            if (bd[ny2][nx2] === 0) pts.add(nx2 + ',' + ny2);
+          }
+        }
+        return Array.from(pts).map((k) => { const [x,y]=k.split(',').map(Number); return {x,y}; });
+      };
+
+      const countImmediateOpponentWinsOnBoard = (bd) => {
+        let cnt = 0;
+        const cands = gatherCandidatesFromBoard(bd);
+        for (let oi = 0; oi < (room.players?.length || 0); oi++) {
+          if (oi === room.turnIndex) continue;
+          const owner = room.players[oi]; if (!owner) continue;
+          const slots = room.mode === 'DUAL' ? [1,2] : [1];
+          for (const sl of slots) {
+            const oppRole = this._getActiveRoleIndex(room, owner, sl);
+            const oppToken = this._tokenOf(oi, sl);
+            for (const p of cands) {
+              const tmp = bd[p.y][p.x];
+              try {
+                if (oppRole === 3) this.roleAbilities[3].place(bd, p.x, p.y, oppToken, oi, 0);
+                else this.roleAbilities[oppRole].place(bd, p.x, p.y, oppToken);
+              } catch (e) { bd[p.y][p.x] = tmp; continue; }
+              if (bd[p.y][p.x] > 0) {
+                const n = oppRole === 1 ? 6 : room.targetN;
+                if (this.checkWinner(bd, p.x, p.y, oppToken, n)) cnt++;
+              }
+              bd[p.y][p.x] = tmp;
+            }
+          }
+        }
+        return cnt;
+      };
+
+      // 計算移動前後對手即時致勝數，若減少則加分
+      try {
+        const beforeBoard = board.map((r) => r.slice());
+        board[ty][tx] = tv;
+        board[ny][nx] = 0;
+        const beforeCnt = countImmediateOpponentWinsOnBoard(beforeBoard);
+        board[ty][tx] = 0;
+        board[ny][nx] = tv;
+        const afterBoard = board.map((r) => r.slice());
+        const afterCnt = countImmediateOpponentWinsOnBoard(afterBoard);
+        const diff = beforeCnt - afterCnt;
+        if (diff > 0) score += diff * 60;
+      } catch (e) {}
 
       board[ny][nx] = 0;
       board[ty][tx] = tv;
@@ -1335,6 +2085,10 @@ class GameManager {
         const tv = board?.[ty]?.[tx];
         if (!(tv > 0)) continue;
 
+        // ✅ 關鍵修正：只考慮移動對手的棋子
+        const targetOwner = Math.floor((tv - 1) / 2);
+        if (targetOwner === room.turnIndex) continue; // 跳過自己的棋子
+
         let selT = null;
         this.gudoSelectTarget(fakeSocket, { roomId, x: tx, y: ty }, (res) => { selT = res; });
         const empties = selT?.ok && Array.isArray(selT.emptyAround) ? selT.emptyAround : [];
@@ -1345,7 +2099,7 @@ class GameManager {
       }
     }
 
-    if (!best || best.score < 120) {
+    if (!best || best.score < 10) {
       room.gudoState = null;
       this.io.to(roomId).emit('gudoCancelled');
       this._emitPlaced(roomId, room);
