@@ -2167,6 +2167,7 @@ class GameManager {
     room.ginyuState = null;
     room.gudoState = null;
     room.jeiceState = null;
+    room.hasUsedSkill = false;
 
     room.turnIndex = 0;
     room.turnSlot = room.mode === 'DUAL' ? 1 : 1;
@@ -2330,7 +2331,7 @@ class GameManager {
       const victorySfx = { key: this.SFX_KEYS.VICTORY, scope: 'sfx', action: 'play', meta: { durationMs: 10000 } };
 
       this._emitPlaced(roomId, room, {
-        win: { winnerIndex: playerIndex, winnerId: player.id },
+        win: { winnerIndex: playerIndex, winnerId: player.id, hasUsedSkill: room.hasUsedSkill },
         sfx: { key: placeSfxKey, by: { playerIndex, slot, roleIndex }, meta: { x, y, step: placedThisTurnBefore } },
         sfx2: victorySfx,
       });
@@ -2475,6 +2476,8 @@ class GameManager {
 
     room.ginyuState = { playerIndex, selfToken, sources, source: null, targets: [] };
 
+    room.hasUsedSkill = true;
+
     this._emitSfx(roomId, { key: this.SFX_KEYS.SKILL_GINYU_SWAP, scope: 'sfx', action: 'prime', by: { playerIndex, slot, roleIndex } });
     cb?.({ ok: true, sources });
   }
@@ -2600,7 +2603,7 @@ class GameManager {
 
       const victorySfx = { key: this.SFX_KEYS.VICTORY, scope: 'sfx', action: 'play', meta: { durationMs: 10000 } };
 
-      this._emitPlaced(roomId, room, { win: { winnerIndex: winner, winnerId: winPlayer.id }, sfx: swapSfx, sfx2: victorySfx });
+      this._emitPlaced(roomId, room, { win: { winnerIndex: winner, winnerId: winPlayer.id, hasUsedSkill: room.hasUsedSkill }, sfx: swapSfx, sfx2: victorySfx });
       this._emitSfx(roomId, victorySfx);
       setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
       return cb?.({ ok: true, win: true });
@@ -2643,6 +2646,8 @@ class GameManager {
     if (!sources.length) return cb?.({ ok: false, message: '場上沒有古杜棋可使用能力' });
 
     room.gudoState = { playerIndex, selfToken, step: 'selectSource', source: null, target: null, emptyAround: [] };
+
+    room.hasUsedSkill = true;
 
     this._emitSfx(roomId, { key: this.SFX_KEYS.SKILL_GULDO, scope: 'sfx', action: 'prime', by: { playerIndex, slot, roleIndex } });
     cb?.({ ok: true, sources });
@@ -2798,7 +2803,7 @@ class GameManager {
 
       const victorySfx = { key: this.SFX_KEYS.VICTORY, scope: 'sfx', action: 'play', meta: { durationMs: 10000 } };
 
-      this._emitPlaced(roomId, room, { win: { winnerIndex: winner, winnerId: winPlayer.id }, sfx: moveSfx, sfx2: victorySfx });
+      this._emitPlaced(roomId, room, { win: { winnerIndex: winner, winnerId: winPlayer.id, hasUsedSkill: room.hasUsedSkill }, sfx: moveSfx, sfx2: victorySfx });
       this._emitSfx(roomId, victorySfx);
       setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
       return cb?.({ ok: true, win: true });
@@ -2842,6 +2847,8 @@ class GameManager {
     if (player.placedThisTurn && player.placedThisTurn > 0) return cb?.({ ok: false, message: '本回合已經落子，無法發動能力' });
 
     room.jeiceState = { playerIndex, slot, selfToken: this._tokenOf(playerIndex, slot), step: 'place', placed: null, targets: [] };
+
+    room.hasUsedSkill = true;
 
     this._emitSfx(roomId, { key: this.SFX_KEYS.SKILL_JEICE, scope: 'sfx', action: 'prime', by: { playerIndex, slot, roleIndex } });
     cb?.({ ok: true });
@@ -2914,7 +2921,7 @@ class GameManager {
 
         const victorySfx = { key: this.SFX_KEYS.VICTORY, scope: 'sfx', action: 'play', meta: { durationMs: 10000 } };
 
-        this._emitPlaced(roomId, room, { win: { winnerIndex: playerIndex, winnerId: player.id }, sfx: placeSfx, sfx2: victorySfx });
+        this._emitPlaced(roomId, room, { win: { winnerIndex: playerIndex, winnerId: player.id, hasUsedSkill: room.hasUsedSkill }, sfx: placeSfx, sfx2: victorySfx });
         this._emitSfx(roomId, victorySfx);
         setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
         return cb?.({ ok: true, targets: [], win: true });
@@ -3001,7 +3008,7 @@ class GameManager {
 
       const victorySfx = { key: this.SFX_KEYS.VICTORY, scope: 'sfx', action: 'play', meta: { durationMs: 10000 } };
 
-      this._emitPlaced(roomId, room, { win: { winnerIndex: winner, winnerId: winPlayer.id }, effect: { type: 'jeice', from, target: { x, y }, to: pushedTo }, sfx: jeiceSkillSfx, sfx2: victorySfx });
+      this._emitPlaced(roomId, room, { win: { winnerIndex: winner, winnerId: winPlayer.id, hasUsedSkill: room.hasUsedSkill }, effect: { type: 'jeice', from, target: { x, y }, to: pushedTo }, sfx: jeiceSkillSfx, sfx2: victorySfx });
       this._emitSfx(roomId, victorySfx);
       setTimeout(() => this.restartGame(roomId), this.POST_GAME_MS);
       cb?.({ ok: true, win: true });

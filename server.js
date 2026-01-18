@@ -331,6 +331,7 @@ io.on('connection', (socket) => {
       ginyuState: null,
       gudoState: null,
       jeiceState: null,
+      hasUsedSkill: false,
       lastActiveAt: now(),
     };
 

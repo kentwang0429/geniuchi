@@ -5324,7 +5324,7 @@ if (roomRef.current) {
 
               const finalBoard = deepCopyBoard(payload.board || board);
 
-              startResult({ winnerIndex, winnerName, finalBoard, roomSnap: r });
+              startResult({ winnerIndex, winnerName, finalBoard, roomSnap: r, hasUsedSkill: payload.win.hasUsedSkill });
             }
 
 
@@ -5637,7 +5637,7 @@ if (roomRef.current) {
           setDragPx(0);
         }
 
-        function startResult({ winnerIndex, winnerName, finalBoard, roomSnap }) {
+        function startResult({ winnerIndex, winnerName, finalBoard, roomSnap, hasUsedSkill }) {
           // 清 timer
           if (resultTimerRef.current) clearInterval(resultTimerRef.current);
           pendingRoomAfterResultRef.current = null;
@@ -5683,29 +5683,53 @@ if (roomRef.current) {
             } catch (e) {}
           }
 
-          // 顯示結算畫面（35秒）
-          setResult({
-            winnerIndex,
-            winnerName,
-            secondsLeft: 35,
-            finalBoard,
-            winLine: winLine || [],
-            winnerSlots,
-            winnerRoleIdxs,
-          });
-
-          if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startVictory();
-
-          let left = 35;
-          resultTimerRef.current = setInterval(() => {
-            left -= 1;
-            setResult((rg) => (rg ? { ...rg, secondsLeft: left } : rg));
-            if (left <= 0) {
-              clearInterval(resultTimerRef.current);
-              resultTimerRef.current = null;
-              exitResult();
+          // ✅ 根據是否有使用技能決定結算延遲時間
+          // 巴特與力庫姆一律視為有使用技能
+          const effectiveHasUsedSkill = hasUsedSkill || winnerRoleIdxs.includes(1) || winnerRoleIdxs.includes(2);
+          let delayMs = 0; // 預設立即顯示
+          if (effectiveHasUsedSkill) {
+            // 根據最後行動的角色決定延遲
+            const lastPlayer = roomSnap?.players?.[roomSnap?.turnIndex];
+            const lastSlot = roomSnap?.mode === 'DUAL' ? roomSnap?.turnSlot || 1 : 1;
+            const lastRoleIndex = lastPlayer ? getPlayerRoleIndex(roomSnap, lastPlayer, lastSlot) : null;
+            if (lastRoleIndex === 0 || lastRoleIndex === 2 || lastRoleIndex === 5) { // 基紐, 力庫姆, 吉斯
+              delayMs = 4000;
+            } else if (lastRoleIndex === 3) { // 羅根
+              delayMs = 3000;
+            } else if (lastRoleIndex === 4) { // 古杜
+              delayMs = 0;
+            } else if (lastRoleIndex === 1) { // 巴特
+              delayMs = 2000;
+            } else { // 其他
+              delayMs = 1500;
             }
-          }, 1000);
+          }
+
+          // ✅ 延遲顯示結算畫面，等技能卡和UI消失後
+          setTimeout(() => {
+            setResult({
+              winnerIndex,
+              winnerName,
+              secondsLeft: 35,
+              finalBoard,
+              winLine: winLine || [],
+              winnerSlots,
+              winnerRoleIdxs,
+            });
+
+            if (!bgmMuted && audioRef.current?.unlocked) audioRef.current?.startVictory();
+
+            let left = 35;
+            resultTimerRef.current = setInterval(() => {
+              left -= 1;
+              setResult((rg) => (rg ? { ...rg, secondsLeft: left } : rg));
+              if (left <= 0) {
+                clearInterval(resultTimerRef.current);
+                resultTimerRef.current = null;
+                exitResult();
+              }
+            }, 1000);
+          }, delayMs);
         }
 
         // ✅ 離開結算：不再送 restartGame（已經在 startResult 送過）
@@ -6803,7 +6827,7 @@ function createRoom(mode) {
               const inTargets = highlightJeiceTargets.some((p) => p.x === x && p.y === y);
 
               if (!inTargets) {
-                cancelJeice();
+                // 點到非法區或空格，不要提示，不要取消，直接保持選擇狀態
                 return;
               }
 
@@ -7743,7 +7767,7 @@ function createRoom(mode) {
                           )
                         : null,
                       isMyTurn && myActiveRoleIndex === 5 && jeiceMode
-                        ? e('button', { onClick: cancelJeice, className: 'ghost' }, '取消吉斯')
+                        ? e('button', { onClick: cancelJeice, className: 'ghost', style: { background: 'rgba(255,0,0,0.5)' } }, '取消吉斯技能')
                         : null,
 
                       // ✅ 悔棋 UI：只給 巴特/羅根 顯示；可用與否照 canUndo
@@ -7824,7 +7848,7 @@ function createRoom(mode) {
                             jeiceMode ? (jeiceStep === 'place' ? '吉斯：請先落子' : '吉斯：選擇擊退目標') : '發動吉斯能力'
                           )
                         : null,
-                      isMyTurn && myActiveRoleIndex === 5 && jeiceMode ? e('button', { onClick: cancelJeice, className: 'ghost' }, '取消吉斯') : null,
+                      isMyTurn && myActiveRoleIndex === 5 && jeiceMode ? e('button', { onClick: cancelJeice, className: 'ghost', style: { background: 'rgba(255,0,0,0.5)' } }, '取消吉斯技能') : null,
 
                       // ✅ 悔棋 UI：只給 巴特/羅根 顯示；可用與否照 canUndo
                       showUndoBtn ? e('button', { onClick: undoMove, disabled: !canUndo }, '悔棋') : null
