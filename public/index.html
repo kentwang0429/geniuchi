@@ -2532,6 +2532,15 @@
           desc: '粉碎球・擊退：發動後落子，若新落子相鄰(8方向)有「非自己此角色」正常棋，可選 1 顆將其往遠離方向擊退（最多 2 格；需後方是空格；不能擊退灰叉）。落子後可放棄擊退。',
         },
       ];
+      // ✅ 勝利結算專用角色卡（不影響選角 / 對局）
+      const ROLE_VICTORY_ART = {
+        0: '/img/cards/ginyu_victory.png',
+        1: '/img/cards/burter_victory.png',
+        2: '/img/cards/recoome_victory.png',
+        3: '/img/cards/logan_victory.jpg',
+        4: '/img/cards/guldo_victory.jpg',
+        5: '/img/cards/jeice_victory.png',
+      };
 
       function CardArtLayer(role) {
         if (!role) return null;
@@ -7986,7 +7995,13 @@ function createRoom(mode) {
                       { className: 'resultCards' + (isDual ? ' dual' : '') },
                       roleIdxs.slice(0, 2).map((ri, k) => {
                         const r = typeof ri === 'number' ? ROLES[ri] : null;
-                        const src = r?.cardArt || '';
+
+                        // ✅ 改這一行：優先使用勝利卡
+                        const src =
+                          typeof ri === 'number'
+                            ? (ROLE_VICTORY_ART[ri] || r?.cardArt || '')
+                            : '';
+
                         return e(
                           'div',
                           { key: k, className: 'resultRoleCard' },
@@ -8002,6 +8017,7 @@ function createRoom(mode) {
                             : null
                         );
                       })
+
                     );
                   })(),
 
