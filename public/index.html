@@ -1018,10 +1018,10 @@
         animation: skillCardFade 3000ms ease-out forwards;
       }
       .skillCardInner {
+        position: relative;
         width: min(320px, 74vw);
         aspect-ratio: 1024 / 1792;
         border-radius: 16px;
-        overflow: hidden;
         box-shadow: 0 14px 44px rgba(0,0,0,0.32);
         transform: translate3d(0, 6px, 0) scale(0.98);
         background: rgba(255,255,255,0.03);
@@ -1042,6 +1042,21 @@
         font-size: 42px;
         color: rgba(255,255,255,0.92);
         letter-spacing: 2px;
+      }
+      .skillNameBar {
+        position: absolute;
+        bottom: 5px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .skillNameText {
+        font-size: 32px; /* 大一點 */
+        font-weight: bold;
+        color: #fff; /* 白字 */
+        white-space: nowrap;
       }
       @keyframes skillCardFade {
         0%   { opacity: 0; transform: translate3d(0, 0, 0); }
@@ -2486,6 +2501,16 @@
         3: '/img/cards/logan_skill.png',
         4: '/img/cards/guldo_skill.png',
         5: '/img/cards/jeice_skill.png',
+      };
+
+      // 技能名稱
+      const SKILL_NAMES = {
+        0: 'CHANGE!!!',
+        1: '宇宙馬赫攻擊',
+        2: '兄弟們 進城!',
+        3: '優雅光爆',
+        4: '念力投擲',
+        5: '紅色岩漿彈',
       };
 
       const ROLES = [
@@ -4244,6 +4269,18 @@ function preloadAudios(urls, { timeoutMs = 1600 } = {}) {
             console.error('[unhandledrejection]', ev?.reason || ev);
           } catch (e) {}
         });
+
+        function getSkillNameColor(roleIndex) {
+          switch (roleIndex) {
+            case 0: return '#9c27b0'; // 基紐 紫色
+            case 1: return '#2196f3'; // 巴特 藍色
+            case 2: return '#ff9800'; // 力庫姆 橘色
+            case 3: return '#00bcd4'; // 羅根 青綠色
+            case 4: return '#4caf50'; // 古杜 綠色
+            case 5: return '#f44336'; // 吉斯 紅色
+            default: return '#000'; // 預設黑色
+          }
+        }
 
         function getPlayerByTarget(r, target) {
           const list = r?.players || [];
@@ -7227,7 +7264,13 @@ function createRoom(mode) {
                   { className: 'skillCardInner' },
                   skillCardRole.useCardArt && skillCardArt
                     ? e('img', { className: 'skillCardImg', src: skillCardArt, alt: skillCardRole.name, draggable: 'false' })
-                    : e('div', { className: 'skillCardFallback' }, skillCardRole.name || 'SKILL')
+                    : e('div', { className: 'skillCardFallback' }, skillCardRole.name || 'SKILL'),
+                  // 技能名稱名條
+                  e(
+                    'div',
+                    { className: 'skillNameBar' },
+                    e('div', { className: 'skillNameText', style: { color: '#fff' } }, SKILL_NAMES[skillCardFx.roleIndex] || '')
+                  )
                 )
               )
             : null,
