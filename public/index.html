@@ -7390,11 +7390,11 @@ function createRoom(mode) {
                 e(
                   'div',
                   { className: 'row', style: { flexWrap: 'wrap' } },
-                  e('button', { onClick: () => createRoom('SINGLE'), disabled: !name.trim() }, '建立房間：單人模式'),
-                  e('button', { onClick: () => createRoom('DUAL'), disabled: !name.trim() }, '建立房間：雙人模式'),
+                  e('button', { onClick: () => createRoom('SINGLE'), disabled: !name.trim() }, '建立房間：單角色模式'),
+                  e('button', { onClick: () => createRoom('DUAL'), disabled: !name.trim() }, '建立房間：雙角色模式'),
                   e('button', { onClick: joinRoom, disabled: !name.trim() }, '加入房間')
                 ),
-                e('div', { className: 'hint' }, '進房後將隱藏建立/加入按鈕（防呆），只保留房號複製與退出房間。')
+                e('div', { className: 'hint' }, '單角色適合練角，雙角色模式比較好玩。')
               )
             ),
 
